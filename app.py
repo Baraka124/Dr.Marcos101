@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from functools import wraps
 from contextlib import contextmanager
-
+from flask import Flask, request, jsonify, send_from_directory, current_app, render_template
 from flask import Flask, request, jsonify, send_from_directory, current_app
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -1128,8 +1128,17 @@ def create_app(config_class=RailwayConfig):
     # ROUTE REGISTRATION - COMPLETE
     # =========================================================================
     @app.route('/')
-    def serve_index():
-        return send_from_directory('.', 'index.html')
+def serve_index():
+    return render_template('index.html')
+
+@app.route('/beds')
+def serve_beds():
+    return render_template('beds.html')
+
+# Serve static files if you have any
+@app.route('/static/<path:path>')
+def serve_static(path):
+    return send_from_directory('static', path)
     
     @app.route('/<path:path>')
     def serve_static(path):
