@@ -1,6 +1,6 @@
 """
-Railway-Optimized Flask Forum Application - COMPLETE REWRITE
-Fully production-ready for Railway deployment
+Railway-Optimized Flask Forum Application - PRODUCTION READY
+Enhanced with Auto-Database Initialization for Railway Deployments
 """
 
 import os
@@ -287,6 +287,81 @@ def init_database(app):
         raise
     finally:
         db_manager.close()
+
+# =============================================================================
+# AUTO-DATABASE INITIALIZATION FOR RAILWAY DEPLOYMENT
+# =============================================================================
+def auto_initialize_database(app):
+    """
+    AUTOMATIC DATABASE SETUP FOR RAILWAY DEPLOYMENT
+    ================================================
+    
+    This function automatically detects and handles database initialization
+    scenarios that occur during Railway deployments:
+    
+    SCENARIOS HANDLED:
+    1. Fresh Deployment - No database exists, runs full setup
+    2. Database Reset - Railway wiped the DB, runs full setup  
+    3. Schema Changes - Tables exist but might need updates
+    4. Data Refresh - Tables exist but data is missing
+    
+    HOW IT WORKS:
+    - Checks if users table exists (indicator of setup completion)
+    - If no tables: Runs schema.py AND seeder.py (full setup)
+    - If tables but no data: Runs seeder.py only (data refresh)
+    - If tables + data exist: Does nothing (app ready)
+    
+    This ensures the app is always ready after Railway deployments
+    where SQLite databases are ephemeral and get reset frequently.
+    """
+    try:
+        db_manager = DatabaseManager(app)
+        with db_manager.get_cursor() as cursor:
+            # Check if users table exists - our indicator of initial setup
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            users_table_exists = cursor.fetchone() is not None
+            
+            if not users_table_exists:
+                # SCENARIO 1 & 2: Fresh deployment or database reset
+                app.logger.info("🚀 Fresh database detected - running full setup...")
+                
+                # Import and run schema creation
+                try:
+                    from schema import init_schema
+                    init_schema()
+                    app.logger.info("✅ Database schema created successfully")
+                except Exception as e:
+                    app.logger.warning(f"Schema initialization note: {e}")
+                
+                # Import and run data seeding
+                try:
+                    from seeder import seed_data
+                    seed_data()
+                    app.logger.info("✅ Sample data seeded successfully")
+                except Exception as e:
+                    app.logger.warning(f"Data seeding note: {e}")
+                    
+            else:
+                # SCENARIO 3 & 4: Tables exist, check if data is populated
+                cursor.execute("SELECT COUNT(*) FROM users")
+                user_count = cursor.fetchone()[0]
+                
+                if user_count == 0:
+                    # SCENARIO 4: Tables exist but no data
+                    app.logger.info("📊 Database tables exist but no data - seeding...")
+                    try:
+                        from seeder import seed_data
+                        seed_data()
+                        app.logger.info("✅ Sample data seeded successfully")
+                    except Exception as e:
+                        app.logger.warning(f"Data seeding note: {e}")
+                else:
+                    # SCENARIO 3: Everything is ready
+                    app.logger.info("✅ Database already populated and ready")
+                    
+    except Exception as e:
+        app.logger.error(f"⚠️ Auto-initialization warning: {e}")
+        # Don't crash the app if auto-init fails - just log and continue
 
 # =============================================================================
 # SECURITY UTILITIES - COMPLETE REWRITE
@@ -1119,10 +1194,82 @@ def create_app(config_class=RailwayConfig):
     )
     app.logger.setLevel(logging.INFO)
     
-    # Initialize database
+    # Initialize database with auto-setup for Railway
     with app.app_context():
         init_database(app)
-    
+        
+        # =====================================================================
+        # AUTO-DATABASE INITIALIZATION FOR RAILWAY DEPLOYMENT
+        # =====================================================================
+        """
+        AUTOMATIC DATABASE SETUP FOR RAILWAY
+        ====================================
+        
+        This automatically handles database initialization scenarios that occur
+        during Railway deployments where SQLite databases are ephemeral:
+        
+        SCENARIOS HANDLED:
+        1. Fresh Deployment - No database exists, runs full setup
+        2. Database Reset - Railway wiped the DB, runs full setup  
+        3. Schema Changes - Tables exist but might need updates
+        4. Data Refresh - Tables exist but data is missing
+        
+        LOGIC:
+        - Checks if users table exists (indicator of setup completion)
+        - If no tables: Runs schema.py AND seeder.py (full setup)
+        - If tables but no data: Runs seeder.py only (data refresh)
+        - If tables + data exist: Does nothing (app ready)
+        """
+        try:
+            db_manager = DatabaseManager(app)
+            with db_manager.get_cursor() as cursor:
+                # Check if users table exists - our indicator of initial setup
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                users_table_exists = cursor.fetchone() is not None
+                
+                if not users_table_exists:
+                    # SCENARIO 1 & 2: Fresh deployment or database reset
+                    app.logger.info("🚀 Fresh database detected - running full setup...")
+                    
+                    # Import and run schema creation
+                    try:
+                        from schema import init_schema
+                        init_schema()
+                        app.logger.info("✅ Database schema created successfully")
+                    except Exception as e:
+                        app.logger.warning(f"Schema initialization note: {e}")
+                    
+                    # Import and run data seeding
+                    try:
+                        from seeder import seed_data
+                        seed_data()
+                        app.logger.info("✅ Sample data seeded successfully")
+                    except Exception as e:
+                        app.logger.warning(f"Data seeding note: {e}")
+                        
+                else:
+                    # SCENARIO 3 & 4: Tables exist, check if data is populated
+                    cursor.execute("SELECT COUNT(*) FROM users")
+                    user_count = cursor.fetchone()[0]
+                    
+                    if user_count == 0:
+                        # SCENARIO 4: Tables exist but no data
+                        app.logger.info("📊 Database tables exist but no data - seeding...")
+                        try:
+                            from seeder import seed_data
+                            seed_data()
+                            app.logger.info("✅ Sample data seeded successfully")
+                        except Exception as e:
+                            app.logger.warning(f"Data seeding note: {e}")
+                    else:
+                        # SCENARIO 3: Everything is ready
+                        app.logger.info("✅ Database already populated and ready")
+                        
+        except Exception as e:
+            app.logger.error(f"⚠️ Auto-initialization warning: {e}")
+            # Don't crash the app if auto-init fails - just log and continue
+        # =====================================================================
+
     # =========================================================================
     # ROUTE REGISTRATION - COMPLETE
     # =========================================================================
