@@ -1,6 +1,15 @@
 """
 Railway-Optimized Flask Forum Application - PRODUCTION READY
 Enhanced with Auto-Database Initialization for Railway Deployments
+
+DESCRIPTION:
+This is a comprehensive hospital management system (PneumoTrack Enterprise) 
+optimized for Railway deployment. It features automatic database initialization,
+bed management, staff scheduling, and real-time monitoring capabilities.
+
+AUTHOR: Your Development Team
+VERSION: 4.0.0
+LAST UPDATED: 2025
 """
 
 import os
@@ -24,269 +33,321 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 
+
 # =============================================================================
-# CONFIGURATION FOR RAILWAY
+# CONFIGURATION FOR RAILWAY DEPLOYMENT
 # =============================================================================
 class RailwayConfig:
-    PORT = int(os.environ.get('PORT', 5000))
-    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-    DB_NAME = os.environ.get('DB_NAME', 'railway_forum.db')
+    """
+    Configuration class optimized for Railway deployment environment.
+    All sensitive values are loaded from environment variables with secure defaults.
+    """
+    # Server Configuration
+    PORT = int(os.environ.get('PORT', 5000))  # Railway provides PORT environment variable
+    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))  # Secure random default
+    
+    # Database Configuration
+    DB_NAME = os.environ.get('DB_NAME', 'pneumotrack_enterprise.db')
+    
+    # Security & Rate Limiting
     RATE_LIMIT_PER_HOUR = int(os.environ.get('RATE_LIMIT_PER_HOUR', '2000'))
     JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', '24'))
-    BCRYPT_ROUNDS = 12
+    BCRYPT_ROUNDS = 12  # Secure password hashing rounds
+    
+    # Application Limits
     MIN_PASSWORD_LENGTH = 8
     MAX_USERNAME_LENGTH = 20
     MAX_POST_LENGTH = 10000
     MAX_COMMENT_LENGTH = 2000
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max upload
+    
+    # Database Performance
     CONNECTION_TIMEOUT = 30
-    WAL_MODE = True
+    WAL_MODE = True  # Write-Ahead Logging for better concurrency
+
 
 # =============================================================================
-# DATABASE MANAGEMENT - COMPLETE REWRITE
+# DATABASE MANAGEMENT - PRODUCTION GRADE
 # =============================================================================
 class DatabaseManager:
+    """
+    Advanced database management with connection pooling, error handling,
+    and performance optimizations for production use.
+    """
+    
     def __init__(self, app):
+        """
+        Initialize database manager with Flask app context.
+        
+        Args:
+            app: Flask application instance
+        """
         self.app = app
         self._connection = None
     
     @property
     def connection(self):
+        """
+        Lazy-loaded database connection with performance optimizations.
+        Uses connection pooling and WAL mode for better concurrency.
+        """
         if self._connection is None:
             self._connection = sqlite3.connect(
                 self.app.config['DB_NAME'],
                 check_same_thread=False,
                 timeout=self.app.config['CONNECTION_TIMEOUT']
             )
+            # Enable row factory for dictionary-like access
             self._connection.row_factory = sqlite3.Row
+            # Enable foreign key constraints
             self._connection.execute("PRAGMA foreign_keys = ON")
+            
+            # Performance optimizations
             if self.app.config['WAL_MODE']:
-                self._connection.execute("PRAGMA journal_mode = WAL")
-            self._connection.execute("PRAGMA synchronous = NORMAL")
-            self._connection.execute("PRAGMA cache_size = -64000")
+                self._connection.execute("PRAGMA journal_mode = WAL")  # Better concurrency
+            self._connection.execute("PRAGMA synchronous = NORMAL")    # Balance safety & performance
+            self._connection.execute("PRAGMA cache_size = -64000")     # 64MB cache
+        
         return self._connection
     
     def close(self):
+        """Safely close database connection."""
         if self._connection:
             self._connection.close()
             self._connection = None
 
     @contextmanager
     def get_cursor(self):
-        """Context manager for database operations"""
+        """
+        Context manager for database operations with automatic transaction handling.
+        
+        Usage:
+            with db_manager.get_cursor() as cursor:
+                cursor.execute("SELECT * FROM table")
+        
+        Features:
+        - Automatic commit on success
+        - Automatic rollback on exception
+        - Proper connection cleanup
+        """
         try:
             cursor = self.connection.cursor()
             yield cursor
-            self.connection.commit()
+            self.connection.commit()  # Auto-commit if no exceptions
         except Exception as e:
-            self.connection.rollback()
+            self.connection.rollback()  # Auto-rollback on error
             raise e
 
+
 def init_database(app):
-    """COMPLETE database initialization"""
+    """
+    Initialize database schema with all required tables, indexes, and constraints.
+    This function creates the complete database structure without any sample data.
+    
+    Args:
+        app: Flask application instance
+    """
     db_manager = DatabaseManager(app)
     
     try:
         with db_manager.get_cursor() as cursor:
-            # COMPLETE schema creation
+            # Core hospital system tables
             cursor.executescript("""
-                CREATE TABLE IF NOT EXISTS users(
+                -- Hospital system configuration table
+                CREATE TABLE IF NOT EXISTS hospital_system (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
-                    password TEXT NOT NULL,
-                    email TEXT UNIQUE,
-                    full_name TEXT,
-                    avatar_color TEXT DEFAULT '#007AFF',
-                    bio TEXT,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    last_login DATETIME,
-                    is_active BOOLEAN DEFAULT 1,
-                    reputation INTEGER DEFAULT 0,
-                    post_count INTEGER DEFAULT 0,
-                    comment_count INTEGER DEFAULT 0,
-                    like_count INTEGER DEFAULT 0,
-                    is_moderator BOOLEAN DEFAULT 0,
-                    is_admin BOOLEAN DEFAULT 0,
-                    email_verified BOOLEAN DEFAULT 0,
-                    verification_token TEXT,
-                    reset_token TEXT,
-                    reset_token_expiry DATETIME,
-                    last_password_change DATETIME DEFAULT (datetime('now'))
+                    hospital_name TEXT NOT NULL DEFAULT 'Advanced Neumology & Pulmonary Center',
+                    chief_of_department TEXT NOT NULL DEFAULT 'Dr. Maria Rodriguez',
+                    system_version TEXT NOT NULL DEFAULT 'PneumoTrack Enterprise v4.0',
+                    emergency_contact TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
-                CREATE TABLE IF NOT EXISTS categories(
+                -- Department units with capacity tracking
+                CREATE TABLE IF NOT EXISTS department_units (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    code TEXT UNIQUE NOT NULL,
+                    specialty TEXT NOT NULL,
+                    color_code TEXT DEFAULT '#3498db',
+                    icon TEXT,
                     description TEXT,
-                    color TEXT DEFAULT '#007AFF',
+                    total_beds INTEGER DEFAULT 0 CHECK(total_beds >= 0),
+                    available_beds INTEGER DEFAULT 0 CHECK(available_beds >= 0),
+                    standby_beds INTEGER DEFAULT 0 CHECK(standby_beds >= 0),
+                    vent_capable_beds INTEGER DEFAULT 0 CHECK(vent_capable_beds >= 0),
+                    negative_pressure_rooms INTEGER DEFAULT 0 CHECK(negative_pressure_rooms >= 0),
+                    is_procedure_capable BOOLEAN DEFAULT 0,
+                    status TEXT DEFAULT 'operational' CHECK(status IN ('operational', 'maintenance', 'closed')),
                     is_active BOOLEAN DEFAULT 1,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    post_count INTEGER DEFAULT 0,
-                    last_post_date DATETIME
+                    unit_phone TEXT,
+                    unit_location TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
-                CREATE TABLE IF NOT EXISTS posts(
+                -- Medical staff with comprehensive role management
+                CREATE TABLE IF NOT EXISTS medical_staff (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    category TEXT NOT NULL,
+                    first_name TEXT NOT NULL,
+                    last_name TEXT NOT NULL,
                     title TEXT,
-                    content TEXT NOT NULL,
-                    content_search TEXT,
-                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
-                    last_activity DATETIME NOT NULL DEFAULT (datetime('now')),
-                    likes_count INTEGER DEFAULT 0,
-                    comments_count INTEGER DEFAULT 0,
-                    is_pinned BOOLEAN DEFAULT 0,
-                    is_locked BOOLEAN DEFAULT 0,
-                    is_deleted BOOLEAN DEFAULT 0,
-                    tags TEXT,
-                    edited_at DATETIME,
-                    edited_by INTEGER,
-                    view_count INTEGER DEFAULT 0,
-                    featured_until DATETIME,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(edited_by) REFERENCES users(id) ON DELETE SET NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS comments(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    post_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
-                    likes_count INTEGER DEFAULT 0,
-                    edited_at DATETIME,
-                    edited_by INTEGER,
-                    parent_comment_id INTEGER,
-                    is_deleted BOOLEAN DEFAULT 0,
-                    depth INTEGER DEFAULT 0,
-                    path TEXT DEFAULT '',
-                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(parent_comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-                    FOREIGN KEY(edited_by) REFERENCES users(id) ON DELETE SET NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS likes(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    post_id INTEGER,
-                    comment_id INTEGER,
-                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
-                    type TEXT DEFAULT 'like',
-                    UNIQUE(user_id, post_id, comment_id),
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
-                    FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-                    CHECK((post_id IS NOT NULL AND comment_id IS NULL) OR (post_id IS NULL AND comment_id IS NOT NULL))
-                );
-
-                CREATE TABLE IF NOT EXISTS bookmarks(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    post_id INTEGER NOT NULL,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    notes TEXT,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
-                    UNIQUE(user_id, post_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS user_sessions(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    session_token TEXT UNIQUE NOT NULL,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    expires_at DATETIME NOT NULL,
-                    ip_address TEXT,
-                    user_agent TEXT,
+                    staff_id TEXT UNIQUE NOT NULL,
+                    specialization TEXT NOT NULL,
+                    sub_specialization TEXT,
+                    qualifications TEXT,
+                    license_number TEXT,
+                    years_experience INTEGER DEFAULT 0 CHECK(years_experience >= 0),
+                    primary_unit_id INTEGER,
+                    secondary_units TEXT,
+                    role TEXT DEFAULT 'consultant' CHECK(role IN ('chief', 'senior_consultant', 'consultant', 'resident')),
+                    email TEXT,
+                    phone TEXT,
+                    emergency_contact TEXT,
+                    emergency_contact_priority INTEGER DEFAULT 99 CHECK(emergency_contact_priority >= 0),
+                    rapid_response_capable BOOLEAN DEFAULT 0,
+                    backup_units TEXT,
+                    current_status TEXT DEFAULT 'available' CHECK(current_status IN ('available', 'busy', 'on_break', 'off_duty')),
+                    is_on_call BOOLEAN DEFAULT 0,
+                    vent_trained BOOLEAN DEFAULT 0,
+                    procedure_trained BOOLEAN DEFAULT 0,
+                    competencies TEXT,
                     is_active BOOLEAN DEFAULT 1,
-                    last_activity DATETIME NOT NULL DEFAULT (datetime('now')),
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    preferred_shift TEXT CHECK(preferred_shift IN ('morning', 'evening', 'night', 'flexible')),
+                    absence_type TEXT CHECK(absence_type IN ('holiday', 'sick_leave', 'maternity_leave', 'paternity_leave', 'emergency_leave', NULL)),
+                    absence_start DATE,
+                    absence_end DATE,
+                    absence_reason TEXT,
+                    guardia_count INTEGER DEFAULT 0 CHECK(guardia_count >= 0),
+                    last_guardia_date DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (primary_unit_id) REFERENCES department_units (id)
                 );
 
-                CREATE TABLE IF NOT EXISTS user_activity(
+                -- Coverage rules for minimum staffing requirements
+                CREATE TABLE IF NOT EXISTS coverage_rules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    action TEXT NOT NULL,
-                    details TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    unit_id INTEGER NOT NULL,
+                    shift_type TEXT NOT NULL CHECK(shift_type IN ('morning', 'evening', 'night')),
+                    min_senior_consultants INTEGER DEFAULT 0 CHECK(min_senior_consultants >= 0),
+                    min_consultants INTEGER DEFAULT 1 CHECK(min_consultants >= 0),
+                    min_vent_trained INTEGER DEFAULT 0 CHECK(min_vent_trained >= 0),
+                    min_procedure_trained INTEGER DEFAULT 0 CHECK(min_procedure_trained >= 0),
+                    is_critical_coverage BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (unit_id) REFERENCES department_units (id),
+                    UNIQUE(unit_id, shift_type)
                 );
 
-                CREATE TABLE IF NOT EXISTS reports(
+                -- Guardia schedules with conflict detection
+                CREATE TABLE IF NOT EXISTS guardia_schedules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    reporter_id INTEGER NOT NULL,
-                    post_id INTEGER,
-                    comment_id INTEGER,
-                    reason TEXT NOT NULL,
-                    description TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    resolved_at DATETIME,
-                    resolved_by INTEGER,
-                    FOREIGN KEY(reporter_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
-                    FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-                    FOREIGN KEY(resolved_by) REFERENCES users(id) ON DELETE SET NULL
+                    staff_id INTEGER NOT NULL,
+                    schedule_date DATE NOT NULL,
+                    shift_type TEXT NOT NULL CHECK(shift_type IN ('morning', 'evening', 'night', '24h')),
+                    unit_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'completed', 'cancelled', 'no_show', 'swapped')),
+                    notes TEXT,
+                    created_by TEXT,
+                    conflict_checked BOOLEAN DEFAULT 0,
+                    coverage_met BOOLEAN DEFAULT 0,
+                    requires_attention BOOLEAN DEFAULT 0,
+                    attention_reason TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (staff_id) REFERENCES medical_staff (id),
+                    FOREIGN KEY (unit_id) REFERENCES department_units (id)
                 );
 
-                CREATE TABLE IF NOT EXISTS notifications(
+                -- Enhanced bed management system
+                CREATE TABLE IF NOT EXISTS enhanced_beds (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    message TEXT NOT NULL,
-                    data TEXT,
-                    is_read BOOLEAN DEFAULT 0,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-                    expires_at DATETIME,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    room_code TEXT NOT NULL,           -- H1, H2, ... H15
+                    bed_number TEXT NOT NULL,          -- BH11, BH12, ... BH154
+                    display_name TEXT,                 -- "Bed 1 - H1"
+                    status TEXT DEFAULT 'empty' CHECK(status IN ('empty', 'occupied', 'reserved', 'cleaning', 'maintenance')),
+                    patient_id INTEGER,
+                    clinical_needs TEXT,               -- 'oxygen,isolation,monitoring'
+                    equipment TEXT,                    -- 'ventilator,high_flow,cpap'
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_by TEXT,
+                    notes TEXT,
+                    UNIQUE(room_code, bed_number)
+                );
+
+                -- Bed audit trail for tracking changes
+                CREATE TABLE IF NOT EXISTS bed_audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bed_id INTEGER,
+                    old_status TEXT,
+                    new_status TEXT,
+                    updated_by TEXT NOT NULL,
+                    update_reason TEXT,
+                    patient_id INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (bed_id) REFERENCES enhanced_beds (id)
+                );
+
+                -- Patient flow tracking
+                CREATE TABLE IF NOT EXISTS patient_flow (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    patient_code TEXT UNIQUE NOT NULL,
+                    anonymous_id TEXT,
+                    age_group TEXT CHECK(age_group IN ('pediatric', 'adult', 'geriatric')),
+                    primary_diagnosis TEXT,
+                    secondary_diagnoses TEXT,
+                    acuity_level TEXT DEFAULT 'stable' CHECK(acuity_level IN ('stable', 'guarded', 'critical')),
+                    current_bed_id INTEGER,
+                    current_unit_id INTEGER,
+                    attending_doctor_id INTEGER,
+                    admission_type TEXT CHECK(admission_type IN ('emergency', 'elective', 'transfer')),
+                    admission_source TEXT,
+                    admission_datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expected_length_of_stay INTEGER CHECK(expected_length_of_stay >= 0),
+                    treatment_phase TEXT,
+                    special_requirements TEXT,
+                    predicted_discharge TIMESTAMP,
+                    discharge_ready BOOLEAN DEFAULT 0,
+                    discharge_notes TEXT,
+                    current_status TEXT DEFAULT 'admitted' CHECK(current_status IN ('admitted', 'discharged', 'transferred', 'deceased')),
+                    status_history TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (current_bed_id) REFERENCES enhanced_beds (id),
+                    FOREIGN KEY (current_unit_id) REFERENCES department_units (id),
+                    FOREIGN KEY (attending_doctor_id) REFERENCES medical_staff (id)
                 );
             """)
 
-            # Create indexes
+            # Create performance indexes for better query performance
             cursor.executescript("""
-                CREATE INDEX IF NOT EXISTS idx_posts_user_category ON posts(user_id, category);
-                CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_posts_last_activity ON posts(last_activity DESC);
-                CREATE INDEX IF NOT EXISTS idx_posts_popularity ON posts(likes_count DESC, comments_count DESC);
-                CREATE INDEX IF NOT EXISTS idx_comments_post_path ON comments(post_id, path);
-                CREATE INDEX IF NOT EXISTS idx_comments_user ON comments(user_id, timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_likes_user ON likes(user_id, timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_users_reputation ON users(reputation DESC);
-                CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
-                CREATE INDEX IF NOT EXISTS idx_activity_user ON user_activity(user_id, timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token);
-                CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id, expires_at);
-                CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id, created_at DESC);
+                -- Core performance indexes
+                CREATE INDEX IF NOT EXISTS idx_staff_frontend ON medical_staff(is_active, current_status, primary_unit_id);
+                CREATE INDEX IF NOT EXISTS idx_guardia_frontend ON guardia_schedules(schedule_date, status, unit_id);
+                CREATE INDEX IF NOT EXISTS idx_beds_frontend ON enhanced_beds(status, room_code);
+                CREATE INDEX IF NOT EXISTS idx_enhanced_beds_room ON enhanced_beds(room_code, bed_number);
+                CREATE INDEX IF NOT EXISTS idx_enhanced_beds_status ON enhanced_beds(status);
+                CREATE INDEX IF NOT EXISTS idx_bed_audit_timestamp ON bed_audit_trail(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_patient_current ON patient_flow(current_status, current_unit_id);
             """)
 
-            # Insert default categories
-            default_categories = [
-                ('General', 'General discussions and topics', '#007AFF'),
-                ('Technology', 'Tech news, programming, and gadgets', '#34C759'),
-                ('Science', 'Scientific discoveries and discussions', '#FF9500'),
-                ('Entertainment', 'Movies, games, and entertainment', '#AF52DE'),
-                ('Sports', 'Sports news and discussions', '#FF3B30'),
-                ('Politics', 'Political discussions and news', '#5856D6')
-            ]
-            
-            cursor.executemany("""
-                INSERT OR IGNORE INTO categories (name, description, color) 
-                VALUES (?, ?, ?)
-            """, default_categories)
+            # Insert default hospital configuration
+            cursor.execute("""
+                INSERT OR IGNORE INTO hospital_system 
+                (hospital_name, chief_of_department, system_version, emergency_contact)
+                VALUES (?, ?, ?, ?)
+            """, (
+                "Advanced Neumology & Pulmonary Center",
+                "Dr. Maria Rodriguez", 
+                "PneumoTrack Enterprise v4.0",
+                "Internal: 5555, External: +1-555-0123"
+            ))
 
-        app.logger.info("Database schema initialized successfully")
+        app.logger.info("✅ Database schema initialized successfully with enhanced bed management")
         
     except Exception as e:
-        app.logger.error(f"Database initialization error: {e}")
+        app.logger.error(f"❌ Database initialization error: {e}")
         raise
     finally:
         db_manager.close()
+
 
 # =============================================================================
 # AUTO-DATABASE INITIALIZATION FOR RAILWAY DEPLOYMENT
@@ -296,8 +357,8 @@ def auto_initialize_database(app):
     AUTOMATIC DATABASE SETUP FOR RAILWAY DEPLOYMENT
     ================================================
     
-    This function automatically detects and handles database initialization
-    scenarios that occur during Railway deployments:
+    This function automatically handles database initialization scenarios
+    that occur during Railway deployments where SQLite databases are ephemeral.
     
     SCENARIOS HANDLED:
     1. Fresh Deployment - No database exists, runs full setup
@@ -305,37 +366,36 @@ def auto_initialize_database(app):
     3. Schema Changes - Tables exist but might need updates
     4. Data Refresh - Tables exist but data is missing
     
-    HOW IT WORKS:
-    - Checks if users table exists (indicator of setup completion)
+    LOGIC:
+    - Checks if hospital_system table exists (indicator of setup completion)
     - If no tables: Runs schema.py AND seeder.py (full setup)
     - If tables but no data: Runs seeder.py only (data refresh)
     - If tables + data exist: Does nothing (app ready)
     
-    This ensures the app is always ready after Railway deployments
-    where SQLite databases are ephemeral and get reset frequently.
+    This ensures the app is always ready after Railway deployments.
     """
     try:
         db_manager = DatabaseManager(app)
         with db_manager.get_cursor() as cursor:
-            # Check if users table exists - our indicator of initial setup
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-            users_table_exists = cursor.fetchone() is not None
+            # Check if hospital_system table exists - our indicator of initial setup
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hospital_system'")
+            hospital_table_exists = cursor.fetchone() is not None
             
-            if not users_table_exists:
+            if not hospital_table_exists:
                 # SCENARIO 1 & 2: Fresh deployment or database reset
                 app.logger.info("🚀 Fresh database detected - running full setup...")
                 
                 # Import and run schema creation
                 try:
-                    from schema import init_schema
-                    init_schema()
+                    from schema import create_tables  # Uses create_tables() function
+                    create_tables()
                     app.logger.info("✅ Database schema created successfully")
                 except Exception as e:
                     app.logger.warning(f"Schema initialization note: {e}")
                 
                 # Import and run data seeding
                 try:
-                    from seeder import seed_data
+                    from seeder import seed_data  # Uses seed_data() function
                     seed_data()
                     app.logger.info("✅ Sample data seeded successfully")
                 except Exception as e:
@@ -343,10 +403,10 @@ def auto_initialize_database(app):
                     
             else:
                 # SCENARIO 3 & 4: Tables exist, check if data is populated
-                cursor.execute("SELECT COUNT(*) FROM users")
-                user_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM medical_staff")
+                staff_count = cursor.fetchone()[0]
                 
-                if user_count == 0:
+                if staff_count == 0:
                     # SCENARIO 4: Tables exist but no data
                     app.logger.info("📊 Database tables exist but no data - seeding...")
                     try:
@@ -363,12 +423,30 @@ def auto_initialize_database(app):
         app.logger.error(f"⚠️ Auto-initialization warning: {e}")
         # Don't crash the app if auto-init fails - just log and continue
 
+
 # =============================================================================
-# SECURITY UTILITIES - COMPLETE REWRITE
+# SECURITY UTILITIES - PRODUCTION GRADE
 # =============================================================================
 class SecurityUtils:
+    """
+    Comprehensive security utilities for input validation, sanitization,
+    and secure password handling.
+    """
+    
     @staticmethod
     def validate_username(username):
+        """
+        Validate username with security constraints.
+        
+        Args:
+            username: Username to validate
+            
+        Returns:
+            str: Sanitized username
+            
+        Raises:
+            ValueError: If username fails validation
+        """
         if len(username) < 3:
             raise ValueError("Username must be at least 3 characters")
         if len(username) > 20:
@@ -381,9 +459,22 @@ class SecurityUtils:
     
     @staticmethod
     def validate_password(password):
+        """
+        Validate password strength with multiple security checks.
+        
+        Args:
+            password: Password to validate
+            
+        Returns:
+            str: Validated password
+            
+        Raises:
+            ValueError: If password fails validation
+        """
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters")
         
+        # Check password complexity
         checks = {
             'uppercase': bool(re.search(r'[A-Z]', password)),
             'lowercase': bool(re.search(r'[a-z]', password)),
@@ -394,6 +485,7 @@ class SecurityUtils:
         if sum(checks.values()) < 3:
             raise ValueError("Password must contain at least 3 of: uppercase, lowercase, digits, special characters")
         
+        # Check against common passwords
         common_passwords = {'password', '123456', 'qwerty', 'letmein', 'welcome'}
         if password.lower() in common_passwords:
             raise ValueError("Password is too common")
@@ -402,9 +494,20 @@ class SecurityUtils:
     
     @staticmethod
     def sanitize_html(content, max_length=None):
+        """
+        Sanitize HTML content to prevent XSS attacks.
+        
+        Args:
+            content: HTML content to sanitize
+            max_length: Optional maximum length
+            
+        Returns:
+            str: Sanitized HTML content
+        """
         if not content:
             return content
         
+        # Define allowed tags and attributes
         allowed_tags = bleach.sanitizer.ALLOWED_TAGS + [
             'p', 'br', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
             'ul', 'ol', 'li', 'strong', 'em', 'u', 'strike', 'blockquote',
@@ -419,6 +522,7 @@ class SecurityUtils:
             'span': ['style']
         }
         
+        # Clean HTML content
         cleaned = bleach.clean(
             content,
             tags=allowed_tags,
@@ -427,10 +531,12 @@ class SecurityUtils:
             strip_comments=True
         )
         
+        # Remove dangerous protocols
         cleaned = re.sub(r'javascript:', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'vbscript:', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'on\w+=', '', cleaned, flags=re.IGNORECASE)
         
+        # Enforce length limit if specified
         if max_length and len(cleaned) > max_length:
             cleaned = cleaned[:max_length]
         
@@ -438,10 +544,29 @@ class SecurityUtils:
     
     @staticmethod
     def hash_password(password):
+        """
+        Securely hash password using bcrypt.
+        
+        Args:
+            password: Plain text password
+            
+        Returns:
+            bytes: Hashed password
+        """
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(12))
     
     @staticmethod
     def check_password(password, hashed):
+        """
+        Verify password against hash.
+        
+        Args:
+            password: Plain text password
+            hashed: Hashed password to check against
+            
+        Returns:
+            bool: True if password matches hash
+        """
         try:
             return bcrypt.checkpw(password.encode('utf-8'), hashed)
         except Exception:
@@ -449,12 +574,31 @@ class SecurityUtils:
     
     @staticmethod
     def generate_secure_token(length=32):
+        """
+        Generate cryptographically secure random token.
+        
+        Args:
+            length: Token length in bytes
+            
+        Returns:
+            str: Hexadecimal token
+        """
         return secrets.token_hex(length)
 
+
 # =============================================================================
-# AUTHENTICATION DECORATORS - COMPLETE REWRITE
+# AUTHENTICATION DECORATORS
 # =============================================================================
 def token_required(f):
+    """
+    Decorator to require valid JWT token for route access.
+    
+    Features:
+    - Validates Bearer token format
+    - Checks token expiration
+    - Verifies user exists and is active
+    - Adds user info to request object
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.headers.get("Authorization")
@@ -465,9 +609,10 @@ def token_required(f):
         if not token.startswith('Bearer '):
             return jsonify({"success": False, "error": "Invalid token format"}), 401
         
-        token = token[7:]
+        token = token[7:]  # Remove 'Bearer ' prefix
         
         try:
+            # Decode and verify JWT token
             decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
             
             db_manager = DatabaseManager(current_app)
@@ -483,6 +628,7 @@ def token_required(f):
                 if not user["is_active"]:
                     return jsonify({"success": False, "error": "Account deactivated"}), 403
                 
+                # Add user info to request for use in route handlers
                 request.user_id = user["id"]
                 request.username = user["username"]
                 request.user_data = dict(user)
@@ -498,7 +644,16 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
 def validate_json(f):
+    """
+    Decorator to validate JSON request body.
+    
+    Features:
+    - Checks Content-Type header
+    - Validates JSON syntax
+    - Adds parsed JSON to request object
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not request.is_json:
@@ -512,11 +667,19 @@ def validate_json(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
 # =============================================================================
-# UTILITY FUNCTIONS - COMPLETE REWRITE
+# UTILITY FUNCTIONS
 # =============================================================================
 def log_user_activity(user_id, action, details=None):
-    """Log user activity"""
+    """
+    Log user activity for audit trail.
+    
+    Args:
+        user_id: ID of the user performing the action
+        action: Description of the action performed
+        details: Additional context or data
+    """
     try:
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
@@ -530,25 +693,17 @@ def log_user_activity(user_id, action, details=None):
     except Exception as e:
         current_app.logger.error(f"Activity logging error: {e}")
 
-def create_notification(user_id, type, title, message, data=None, expires_hours=24):
-    """Create user notification"""
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            expires_at = datetime.now() + timedelta(hours=expires_hours) if expires_hours else None
-            
-            cursor.execute("""
-                INSERT INTO notifications (user_id, type, title, message, data, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, type, title, message, data, expires_at))
-            
-            return cursor.lastrowid
-    except Exception as e:
-        current_app.logger.error(f"Notification creation error: {e}")
-        return None
 
 def format_timestamp(timestamp):
-    """Format timestamp for display"""
+    """
+    Format timestamp for human-readable display.
+    
+    Args:
+        timestamp: Datetime object or ISO format string
+        
+    Returns:
+        str: Human-readable time difference
+    """
     if not timestamp:
         return "Recently"
     
@@ -561,6 +716,7 @@ def format_timestamp(timestamp):
         now = datetime.now()
         diff = now - post_time
         
+        # Calculate appropriate time unit
         if diff.days > 365:
             years = diff.days // 365
             return f"{years} year{'s' if years > 1 else ''} ago"
@@ -578,591 +734,274 @@ def format_timestamp(timestamp):
     except:
         return "Recently"
 
+
 def generate_avatar_color():
+    """
+    Generate random avatar color for users.
+    
+    Returns:
+        str: Hex color code
+    """
     colors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30', '#AF52DE', '#5856D6', '#FF2D55', '#32D74B']
     return random.choice(colors)
 
+
 # =============================================================================
-# ROUTE HANDLERS - COMPLETE REWRITE
+# ROUTE HANDLERS - HOSPITAL MANAGEMENT SYSTEM
 # =============================================================================
-def handle_register():
-    """COMPLETE user registration handler"""
-    data = request.json_data
+def get_medical_staff():
+    """
+    Retrieve all active medical staff with their details.
     
+    Returns:
+        JSON response with staff list or error message
+    """
     try:
-        username = SecurityUtils.validate_username(data.get("username", ""))
-        password = SecurityUtils.validate_password(data.get("password", ""))
-        email = data.get("email")
-        
-        if email:
-            if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
-                raise ValueError("Invalid email format")
-        
-        full_name = SecurityUtils.sanitize_html(data.get("full_name", ""), 50)
-        bio = SecurityUtils.sanitize_html(data.get("bio", ""), 200)
-        
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            cursor.execute("SELECT id FROM users WHERE username = ? OR email = ?", (username, email))
-            if cursor.fetchone():
-                raise ValueError("Username or email already exists")
-            
-            hashed_pw = SecurityUtils.hash_password(password)
-            avatar_color = generate_avatar_color()
-            verification_token = SecurityUtils.generate_secure_token() if email else None
-            
-            cursor.execute("""INSERT INTO users 
-                        (username, password, email, full_name, avatar_color, bio, verification_token) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                     (username, hashed_pw, email, full_name, avatar_color, bio, verification_token))
-            
-            user_id = cursor.lastrowid
-        
-        log_user_activity(user_id, "user_registered", {"email_provided": bool(email)})
-        current_app.logger.info(f"New user registered: {username} (ID: {user_id})")
-        
-        return jsonify({
-            "success": True, 
-            "message": "Account created successfully",
-            "user_id": user_id,
-            "requires_verification": bool(email)
-        })
-    
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    except Exception as e:
-        current_app.logger.error(f"Registration error: {e}")
-        return jsonify({"success": False, "error": "Registration failed"}), 500
-
-def handle_login():
-    """COMPLETE login handler"""
-    data = request.json_data
-    
-    try:
-        username = data.get("username", "").strip().lower()
-        password = data.get("password", "")
-        remember_me = data.get("remember_me", False)
-        
-        if not username or not password:
-            raise ValueError("Username and password required")
-        
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
             cursor.execute("""
-                SELECT id, password, username, avatar_color, is_active, email_verified 
-                FROM users WHERE username = ? OR email = ?
-            """, (username, username))
-            
-            user = cursor.fetchone()
-            
-            if not user or not SecurityUtils.check_password(password, user["password"]):
-                log_user_activity(None, "failed_login", {"username": username})
-                raise ValueError("Invalid credentials")
-            
-            if not user["is_active"]:
-                raise ValueError("Account deactivated")
-            
-            cursor.execute("UPDATE users SET last_login = datetime('now') WHERE id = ?", (user["id"],))
-            
-            token_expiry = timedelta(hours=24) if remember_me else timedelta(hours=6)
-            token = jwt.encode({
-                "user_id": user["id"],
-                "username": user["username"],
-                "exp": datetime.utcnow() + token_expiry
-            }, current_app.config['SECRET_KEY'], algorithm="HS256")
-            
-            session_token = SecurityUtils.generate_secure_token()
-            expires_at = datetime.now() + token_expiry
-            
-            cursor.execute("""
-                INSERT INTO user_sessions 
-                (user_id, session_token, expires_at, ip_address, user_agent) 
-                VALUES (?, ?, ?, ?, ?)
-            """, (user["id"], session_token, expires_at, request.remote_addr, request.headers.get('User-Agent')))
-        
-        log_user_activity(user["id"], "login_success")
-        
-        return jsonify({
-            "success": True, 
-            "token": token,
-            "session_token": session_token,
-            "expires_in": int(token_expiry.total_seconds()),
-            "user": {
-                "id": user["id"],
-                "username": user["username"],
-                "avatar_color": user["avatar_color"],
-                "email_verified": user["email_verified"]
-            }
-        })
-        
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 401
+                SELECT ms.*, du.name as primary_unit_name
+                FROM medical_staff ms
+                LEFT JOIN department_units du ON ms.primary_unit_id = du.id
+                WHERE ms.is_active = 1
+                ORDER BY ms.role, ms.last_name, ms.first_name
+            """)
+            staff = [dict(row) for row in cursor.fetchall()]
+            return jsonify({"success": True, "staff": staff})
     except Exception as e:
-        current_app.logger.error(f"Login error: {e}")
-        return jsonify({"success": False, "error": "Login failed"}), 500
+        current_app.logger.error(f"Medical staff retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve medical staff"}), 500
 
-def handle_logout():
-    """COMPLETE logout handler"""
-    session_token = request.headers.get('X-Session-Token')
+
+def get_guardia_schedules():
+    """
+    Retrieve guardia schedules with filtering options.
     
+    Query Parameters:
+        - date: Specific date to filter schedules
+        - unit_id: Filter by department unit
+        - staff_id: Filter by staff member
+        
+    Returns:
+        JSON response with schedules or error message
+    """
     try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            if session_token:
-                cursor.execute("""
-                    UPDATE user_sessions SET is_active = 0 
-                    WHERE session_token = ? AND user_id = ?
-                """, (session_token, request.user_id))
-            
-            log_user_activity(request.user_id, "logout")
-            return jsonify({"success": True, "message": "Logged out successfully"})
-            
-    except Exception as e:
-        current_app.logger.error(f"Logout error: {e}")
-        return jsonify({"success": False, "error": "Logout failed"}), 500
-
-def get_categories():
-    """COMPLETE categories handler"""
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM categories WHERE is_active = 1 ORDER BY name")
-            categories = [dict(row) for row in cursor.fetchall()]
-            return jsonify({"success": True, "categories": categories})
-    except Exception as e:
-        current_app.logger.error(f"Categories error: {e}")
-        return jsonify({"success": False, "error": "Failed to get categories"}), 500
-
-def create_post():
-    """COMPLETE post creation handler"""
-    data = request.json_data
-    
-    try:
-        category = SecurityUtils.sanitize_html(data.get("category", ""), 50)
-        content = SecurityUtils.sanitize_html(data.get("content", ""), current_app.config['MAX_POST_LENGTH'])
-        title = SecurityUtils.sanitize_html(data.get("title", ""), 200)
-        
-        if len(content.strip()) < 10:
-            raise ValueError("Content must be at least 10 characters")
-        
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            cursor.execute("SELECT name FROM categories WHERE name = ? AND is_active = 1", (category,))
-            if not cursor.fetchone():
-                raise ValueError("Invalid category")
-            
-            cursor.execute("""
-                INSERT INTO posts (user_id, category, title, content) 
-                VALUES (?, ?, ?, ?)
-            """, (request.user_id, category, title, content))
-            
-            post_id = cursor.lastrowid
-            
-            cursor.execute("UPDATE users SET post_count = post_count + 1 WHERE id = ?", (request.user_id,))
-            
-            cursor.execute("""
-                UPDATE categories SET 
-                post_count = post_count + 1,
-                last_post_date = datetime('now')
-                WHERE name = ?
-            """, (category,))
-        
-        log_user_activity(request.user_id, "post_created", {"post_id": post_id, "category": category})
-        
-        return jsonify({
-            "success": True, 
-            "message": "Post created successfully", 
-            "post_id": post_id
-        }), 201
-        
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    except Exception as e:
-        current_app.logger.error(f"Post creation error: {e}")
-        return jsonify({"success": False, "error": "Failed to create post"}), 500
-
-def get_posts():
-    """COMPLETE posts retrieval handler"""
-    try:
-        page = max(1, request.args.get('page', 1, type=int))
-        per_page = min(max(1, request.args.get('per_page', 10, type=int)), 50)
-        category = request.args.get('category', '')
-        search = SecurityUtils.sanitize_html(request.args.get('search', ''), 100)
-        sort = request.args.get('sort', 'newest')
-        user_id = request.args.get('user_id', type=int)
-        
-        offset = (page - 1) * per_page
+        # Get query parameters with defaults
+        date_filter = request.args.get('date')
+        unit_id = request.args.get('unit_id', type=int)
+        staff_id = request.args.get('staff_id', type=int)
         
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
             query = """
-                SELECT p.*, u.username, u.avatar_color, u.reputation,
-                       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.is_deleted = 0) as real_comments_count
-                FROM posts p 
-                JOIN users u ON p.user_id = u.id 
-                WHERE p.is_deleted = 0 AND u.is_active = 1
+                SELECT gs.*, 
+                       ms.first_name || ' ' || ms.last_name as staff_name,
+                       ms.role as staff_role,
+                       du.name as unit_name,
+                       du.code as unit_code
+                FROM guardia_schedules gs
+                JOIN medical_staff ms ON gs.staff_id = ms.id
+                JOIN department_units du ON gs.unit_id = du.id
+                WHERE 1=1
             """
-            
-            count_query = """
-                SELECT COUNT(*) 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.id 
-                WHERE p.is_deleted = 0 AND u.is_active = 1
-            """
-            
             params = []
             
-            if category:
-                query += " AND p.category = ?"
-                count_query += " AND p.category = ?"
-                params.append(category)
+            # Apply filters
+            if date_filter:
+                query += " AND gs.schedule_date = ?"
+                params.append(date_filter)
+            if unit_id:
+                query += " AND gs.unit_id = ?"
+                params.append(unit_id)
+            if staff_id:
+                query += " AND gs.staff_id = ?"
+                params.append(staff_id)
             
-            if search:
-                query += " AND (p.content LIKE ? OR u.username LIKE ? OR p.title LIKE ?)"
-                count_query += " AND (p.content LIKE ? OR u.username LIKE ? OR p.title LIKE ?)"
-                search_term = f'%{search}%'
-                params.extend([search_term, search_term, search_term])
-            
-            if user_id:
-                query += " AND p.user_id = ?"
-                count_query += " AND p.user_id = ?"
-                params.append(user_id)
-            
-            sort_options = {
-                'newest': 'p.timestamp DESC',
-                'oldest': 'p.timestamp ASC',
-                'popular': 'p.likes_count DESC, p.comments_count DESC',
-                'active': 'p.last_activity DESC'
-            }
-            
-            query += f" ORDER BY {sort_options.get(sort, 'p.timestamp DESC')}"
-            query += " LIMIT ? OFFSET ?"
-            
-            count_params = params.copy()
-            params.extend([per_page, offset])
-            
-            cursor.execute(count_query, count_params)
-            total_count = cursor.fetchone()[0]
+            query += " ORDER BY gs.schedule_date, gs.shift_type, du.name"
             
             cursor.execute(query, params)
-            rows = [dict(row) for row in cursor.fetchall()]
+            schedules = [dict(row) for row in cursor.fetchall()]
             
-            for post in rows:
-                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
-                             (request.user_id, post['id']))
-                post['user_has_liked'] = cursor.fetchone() is not None
-                
-                cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?",
-                             (request.user_id, post['id']))
-                post['user_has_bookmarked'] = cursor.fetchone() is not None
-                
-                post['formatted_timestamp'] = format_timestamp(post['timestamp'])
-                post['formatted_last_activity'] = format_timestamp(post['last_activity'])
+            return jsonify({"success": True, "schedules": schedules})
+            
+    except Exception as e:
+        current_app.logger.error(f"Guardia schedules retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve schedules"}), 500
+
+
+def get_enhanced_beds():
+    """
+    Retrieve enhanced bed management data with patient information.
+    
+    Returns:
+        JSON response with bed status and occupancy
+    """
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    eb.*,
+                    pf.patient_code,
+                    pf.acuity_level,
+                    pf.primary_diagnosis,
+                    ms.first_name || ' ' || ms.last_name as attending_doctor
+                FROM enhanced_beds eb
+                LEFT JOIN patient_flow pf ON eb.patient_id = pf.id
+                LEFT JOIN medical_staff ms ON pf.attending_doctor_id = ms.id
+                ORDER BY eb.room_code, eb.bed_number
+            """)
+            beds = [dict(row) for row in cursor.fetchall()]
+            
+            # Calculate bed statistics
+            total_beds = len(beds)
+            occupied_beds = len([bed for bed in beds if bed['status'] == 'occupied'])
+            available_beds = len([bed for bed in beds if bed['status'] == 'empty'])
+            
+            stats = {
+                'total_beds': total_beds,
+                'occupied_beds': occupied_beds,
+                'available_beds': available_beds,
+                'occupancy_rate': round((occupied_beds / total_beds) * 100, 1) if total_beds > 0 else 0
+            }
             
             return jsonify({
                 "success": True, 
-                "data": rows,
-                "pagination": {
-                    "page": page,
-                    "per_page": per_page,
-                    "total": total_count,
-                    "pages": (total_count + per_page - 1) // per_page
-                },
-                "filters": {
-                    "category": category,
-                    "search": search,
-                    "sort": sort
-                }
+                "beds": beds,
+                "statistics": stats
             })
             
     except Exception as e:
-        current_app.logger.error(f"Posts retrieval error: {e}")
-        return jsonify({"success": False, "error": "Failed to retrieve posts"}), 500
+        current_app.logger.error(f"Enhanced beds retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve bed data"}), 500
 
-def handle_get_post(post_id):
-    """COMPLETE single post handler"""
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT p.*, u.username, u.avatar_color, u.reputation
-                FROM posts p 
-                JOIN users u ON p.user_id = u.id 
-                WHERE p.id = ? AND p.is_deleted = 0
-            """, (post_id,))
-            
-            post = cursor.fetchone()
-            if not post:
-                return jsonify({"success": False, "error": "Post not found"}), 404
-            
-            post = dict(post)
-            
-            cursor.execute("""
-                SELECT c.*, u.username, u.avatar_color
-                FROM comments c
-                JOIN users u ON c.user_id = u.id
-                WHERE c.post_id = ? AND c.is_deleted = 0
-                ORDER BY c.timestamp ASC
-            """, (post_id,))
-            
-            comments = [dict(row) for row in cursor.fetchall()]
-            
-            cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
-                         (request.user_id, post_id))
-            post['user_has_liked'] = cursor.fetchone() is not None
-            
-            cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?",
-                         (request.user_id, post_id))
-            post['user_has_bookmarked'] = cursor.fetchone() is not None
-            
-            post['formatted_timestamp'] = format_timestamp(post['timestamp'])
-            
-            return jsonify({
-                "success": True,
-                "post": post,
-                "comments": comments
-            })
-            
-    except Exception as e:
-        current_app.logger.error(f"Post retrieval error: {e}")
-        return jsonify({"success": False, "error": "Failed to retrieve post"}), 500
 
-def handle_like_post(post_id):
-    """COMPLETE post like handler"""
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            if request.method == 'POST':
-                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
-                             (request.user_id, post_id))
-                if cursor.fetchone():
-                    return jsonify({"success": False, "error": "Already liked"}), 400
-                
-                cursor.execute("INSERT INTO likes (user_id, post_id) VALUES (?, ?)", 
-                             (request.user_id, post_id))
-                
-                cursor.execute("UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?", (post_id,))
-                cursor.execute("UPDATE users SET like_count = like_count + 1 WHERE id = ?", (request.user_id,))
-                
-                return jsonify({"success": True, "message": "Post liked"})
-                
-            else:
-                cursor.execute("DELETE FROM likes WHERE user_id = ? AND post_id = ?", 
-                             (request.user_id, post_id))
-                
-                if cursor.rowcount > 0:
-                    cursor.execute("UPDATE posts SET likes_count = likes_count - 1 WHERE id = ?", (post_id,))
-                    cursor.execute("UPDATE users SET like_count = like_count - 1 WHERE id = ?", (request.user_id,))
-                    return jsonify({"success": True, "message": "Post unliked"})
-                else:
-                    return jsonify({"success": False, "error": "Like not found"}), 404
-                    
-    except Exception as e:
-        current_app.logger.error(f"Like error: {e}")
-        return jsonify({"success": False, "error": "Failed to process like"}), 500
-
-def handle_bookmark_post(post_id):
-    """COMPLETE bookmark handler"""
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            if request.method == 'POST':
-                cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?", 
-                             (request.user_id, post_id))
-                if cursor.fetchone():
-                    return jsonify({"success": False, "error": "Already bookmarked"}), 400
-                
-                cursor.execute("INSERT INTO bookmarks (user_id, post_id) VALUES (?, ?)", 
-                             (request.user_id, post_id))
-                
-                return jsonify({"success": True, "message": "Post bookmarked"})
-                
-            else:
-                cursor.execute("DELETE FROM bookmarks WHERE user_id = ? AND post_id = ?", 
-                             (request.user_id, post_id))
-                
-                if cursor.rowcount > 0:
-                    return jsonify({"success": True, "message": "Post unbookmarked"})
-                else:
-                    return jsonify({"success": False, "error": "Bookmark not found"}), 404
-                    
-    except Exception as e:
-        current_app.logger.error(f"Bookmark error: {e}")
-        return jsonify({"success": False, "error": "Failed to process bookmark"}), 500
-
-def handle_add_comment(post_id):
-    """COMPLETE comment handler"""
-    data = request.json_data
+def get_department_units():
+    """
+    Retrieve all active department units with capacity information.
     
+    Returns:
+        JSON response with department units or error message
+    """
     try:
-        content = SecurityUtils.sanitize_html(data.get("content", ""), current_app.config['MAX_COMMENT_LENGTH'])
-        
-        if len(content.strip()) < 1:
-            raise ValueError("Comment content is required")
-        
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
-            cursor.execute("SELECT id FROM posts WHERE id = ? AND is_deleted = 0", (post_id,))
-            if not cursor.fetchone():
-                raise ValueError("Post not found")
-            
             cursor.execute("""
-                INSERT INTO comments (post_id, user_id, content) 
-                VALUES (?, ?, ?)
-            """, (post_id, request.user_id, content))
-            
-            comment_id = cursor.lastrowid
-            
-            cursor.execute("""
-                UPDATE posts SET 
-                comments_count = comments_count + 1,
-                last_activity = datetime('now')
-                WHERE id = ?
-            """, (post_id,))
-            
-            cursor.execute("UPDATE users SET comment_count = comment_count + 1 WHERE id = ?", (request.user_id,))
-        
-        log_user_activity(request.user_id, "comment_created", {"post_id": post_id, "comment_id": comment_id})
-        
-        return jsonify({
-            "success": True, 
-            "message": "Comment added successfully", 
-            "comment_id": comment_id
-        }), 201
-        
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+                SELECT * FROM department_units 
+                WHERE is_active = 1 
+                ORDER BY name
+            """)
+            units = [dict(row) for row in cursor.fetchall()]
+            return jsonify({"success": True, "units": units})
     except Exception as e:
-        current_app.logger.error(f"Comment creation error: {e}")
-        return jsonify({"success": False, "error": "Failed to add comment"}), 500
+        current_app.logger.error(f"Department units retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve department units"}), 500
 
-def handle_like_comment(comment_id):
-    """COMPLETE comment like handler"""
+
+def get_patient_flow():
+    """
+    Retrieve current patient flow with bed assignments.
+    
+    Returns:
+        JSON response with patient information
+    """
     try:
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
-            if request.method == 'POST':
-                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND comment_id = ?", 
-                             (request.user_id, comment_id))
-                if cursor.fetchone():
-                    return jsonify({"success": False, "error": "Already liked"}), 400
-                
-                cursor.execute("INSERT INTO likes (user_id, comment_id) VALUES (?, ?)", 
-                             (request.user_id, comment_id))
-                
-                cursor.execute("UPDATE comments SET likes_count = likes_count + 1 WHERE id = ?", (comment_id,))
-                
-                return jsonify({"success": True, "message": "Comment liked"})
-                
-            else:
-                cursor.execute("DELETE FROM likes WHERE user_id = ? AND comment_id = ?", 
-                             (request.user_id, comment_id))
-                
-                if cursor.rowcount > 0:
-                    cursor.execute("UPDATE comments SET likes_count = likes_count - 1 WHERE id = ?", (comment_id,))
-                    return jsonify({"success": True, "message": "Comment unliked"})
-                else:
-                    return jsonify({"success": False, "error": "Like not found"}), 404
-                    
+            cursor.execute("""
+                SELECT 
+                    pf.*,
+                    eb.room_code,
+                    eb.bed_number,
+                    du.name as unit_name,
+                    ms.first_name || ' ' || ms.last_name as doctor_name
+                FROM patient_flow pf
+                LEFT JOIN enhanced_beds eb ON pf.current_bed_id = eb.id
+                LEFT JOIN department_units du ON pf.current_unit_id = du.id
+                LEFT JOIN medical_staff ms ON pf.attending_doctor_id = ms.id
+                WHERE pf.current_status = 'admitted'
+                ORDER BY pf.acuity_level DESC, pf.admission_datetime
+            """)
+            patients = [dict(row) for row in cursor.fetchall()]
+            return jsonify({"success": True, "patients": patients})
     except Exception as e:
-        current_app.logger.error(f"Comment like error: {e}")
-        return jsonify({"success": False, "error": "Failed to process like"}), 500
+        current_app.logger.error(f"Patient flow retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve patient flow"}), 500
 
-def handle_analytics():
-    """COMPLETE analytics handler"""
+
+def get_system_overview():
+    """
+    Get comprehensive system overview with key metrics.
+    
+    Returns:
+        JSON response with system statistics
+    """
     try:
         db_manager = DatabaseManager(current_app)
         with db_manager.get_cursor() as cursor:
-            stats = {}
+            # Get key metrics
+            metrics = {}
             
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_users,
-                    COUNT(CASE WHEN last_login > datetime('now', '-7 days') THEN 1 END) as active_week,
-                    COUNT(CASE WHEN last_login > datetime('now', '-1 day') THEN 1 END) as active_today,
-                    COUNT(CASE WHEN created_at > datetime('now', '-7 days') THEN 1 END) as new_users_week,
-                    AVG(reputation) as avg_reputation
-                FROM users 
-                WHERE is_active = 1
-            """)
-            stats['users'] = dict(cursor.fetchone())
+            # Staff metrics
+            cursor.execute("SELECT COUNT(*) FROM medical_staff WHERE is_active = 1")
+            metrics['total_staff'] = cursor.fetchone()[0]
             
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_posts,
-                    COUNT(CASE WHEN timestamp > datetime('now', '-7 days') THEN 1 END) as posts_week,
-                    COUNT(CASE WHEN timestamp > datetime('now', '-1 day') THEN 1 END) as posts_today,
-                    AVG(likes_count) as avg_likes,
-                    AVG(comments_count) as avg_comments,
-                    SUM(view_count) as total_views
-                FROM posts
-                WHERE is_deleted = 0
-            """)
-            stats['posts'] = dict(cursor.fetchone())
+            cursor.execute("SELECT COUNT(*) FROM medical_staff WHERE is_on_call = 1")
+            metrics['on_call_staff'] = cursor.fetchone()[0]
             
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total_likes,
-                    COUNT(*) as total_comments,
-                    COUNT(DISTINCT user_id) as active_posters
-                FROM posts p
-                WHERE p.is_deleted = 0
-            """)
-            stats['engagement'] = dict(cursor.fetchone())
+            # Bed metrics
+            cursor.execute("SELECT COUNT(*) FROM enhanced_beds")
+            metrics['total_beds'] = cursor.fetchone()[0]
             
-            cursor.execute("""
-                SELECT 
-                    c.name as category,
-                    c.post_count,
-                    c.color,
-                    COUNT(CASE WHEN p.timestamp > datetime('now', '-7 days') THEN 1 END) as posts_week,
-                    AVG(p.likes_count) as avg_likes,
-                    AVG(p.comments_count) as avg_comments
-                FROM categories c
-                LEFT JOIN posts p ON c.name = p.category AND p.is_deleted = 0
-                WHERE c.is_active = 1
-                GROUP BY c.id
-                ORDER BY c.post_count DESC
-                LIMIT 10
-            """)
-            stats['popular_categories'] = [dict(row) for row in cursor.fetchall()]
+            cursor.execute("SELECT COUNT(*) FROM enhanced_beds WHERE status = 'occupied'")
+            metrics['occupied_beds'] = cursor.fetchone()[0]
             
-            cursor.execute("""
-                SELECT 
-                    u.username,
-                    u.avatar_color,
-                    u.reputation,
-                    u.post_count,
-                    u.comment_count,
-                    u.like_count
-                FROM users u
-                WHERE u.is_active = 1
-                ORDER BY u.reputation DESC, u.post_count DESC
-                LIMIT 10
-            """)
-            stats['top_contributors'] = [dict(row) for row in cursor.fetchall()]
+            # Patient metrics
+            cursor.execute("SELECT COUNT(*) FROM patient_flow WHERE current_status = 'admitted'")
+            metrics['active_patients'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM patient_flow WHERE acuity_level = 'critical'")
+            metrics['critical_patients'] = cursor.fetchone()[0]
+            
+            # Today's schedules
+            cursor.execute("SELECT COUNT(*) FROM guardia_schedules WHERE schedule_date = DATE('now')")
+            metrics['today_schedules'] = cursor.fetchone()[0]
             
             return jsonify({
                 "success": True,
-                "analytics": stats,
-                "generated_at": datetime.now().isoformat()
+                "overview": metrics,
+                "timestamp": datetime.now().isoformat()
             })
             
     except Exception as e:
-        current_app.logger.error(f"Analytics error: {e}")
-        return jsonify({"success": False, "error": "Failed to get analytics"}), 500
+        current_app.logger.error(f"System overview retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve system overview"}), 500
+
 
 # =============================================================================
-# APPLICATION FACTORY - COMPLETE REWRITE
+# APPLICATION FACTORY - MAIN FLASK APP SETUP
 # =============================================================================
 def create_app(config_class=RailwayConfig):
+    """
+    Flask application factory pattern for creating app instances.
+    
+    Args:
+        config_class: Configuration class to use
+        
+    Returns:
+        Flask: Configured Flask application instance
+    """
     app = Flask(__name__)
     app.config.from_object(config_class)
     
-    # Enhanced CORS
+    # =========================================================================
+    # SECURITY MIDDLEWARE SETUP
+    # =========================================================================
+    
+    # CORS - Configure for frontend access
     CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
     
-    # Security headers
+    # Content Security Policy
     csp = {
         'default-src': ["'self'"],
         'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
@@ -1171,14 +1010,15 @@ def create_app(config_class=RailwayConfig):
         'img-src': ["'self'", "data:", "https:"]
     }
     
+    # Talisman for security headers
     Talisman(
         app,
-        content_security_policy=None,
+        content_security_policy=None,  # Disabled for simplicity, configure as needed
         force_https=os.environ.get('RAILWAY_ENVIRONMENT') == 'production',
         strict_transport_security=True
     )
     
-    # Rate limiting
+    # Rate limiting to prevent abuse
     limiter = Limiter(
         app=app,
         key_func=get_remote_address,
@@ -1187,216 +1027,143 @@ def create_app(config_class=RailwayConfig):
         strategy="fixed-window"
     )
     
-    # Logging
+    # =========================================================================
+    # LOGGING CONFIGURATION
+    # =========================================================================
     logging.basicConfig(
         level=logging.INFO if os.environ.get('RAILWAY_ENVIRONMENT') == 'production' else logging.DEBUG,
         format='%(asctime)s %(levelname)s: %(message)s [%(name)s:%(lineno)d]'
     )
     app.logger.setLevel(logging.INFO)
     
-    # Initialize database with auto-setup for Railway
+    # =========================================================================
+    # DATABASE INITIALIZATION WITH AUTO-SETUP
+    # =========================================================================
     with app.app_context():
+        # Initialize database schema
         init_database(app)
         
-        # =====================================================================
-        # AUTO-DATABASE INITIALIZATION FOR RAILWAY DEPLOYMENT
-        # =====================================================================
-        """
-        AUTOMATIC DATABASE SETUP FOR RAILWAY
-        ====================================
-        
-        This automatically handles database initialization scenarios that occur
-        during Railway deployments where SQLite databases are ephemeral:
-        
-        SCENARIOS HANDLED:
-        1. Fresh Deployment - No database exists, runs full setup
-        2. Database Reset - Railway wiped the DB, runs full setup  
-        3. Schema Changes - Tables exist but might need updates
-        4. Data Refresh - Tables exist but data is missing
-        
-        LOGIC:
-        - Checks if users table exists (indicator of setup completion)
-        - If no tables: Runs schema.py AND seeder.py (full setup)
-        - If tables but no data: Runs seeder.py only (data refresh)
-        - If tables + data exist: Does nothing (app ready)
-        """
-        try:
-            db_manager = DatabaseManager(app)
-            with db_manager.get_cursor() as cursor:
-                # Check if users table exists - our indicator of initial setup
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-                users_table_exists = cursor.fetchone() is not None
-                
-                if not users_table_exists:
-                    # SCENARIO 1 & 2: Fresh deployment or database reset
-                    app.logger.info("🚀 Fresh database detected - running full setup...")
-                    
-                    # Import and run schema creation
-                    try:
-                        from schema import init_schema
-                        init_schema()
-                        app.logger.info("✅ Database schema created successfully")
-                    except Exception as e:
-                        app.logger.warning(f"Schema initialization note: {e}")
-                    
-                    # Import and run data seeding
-                    try:
-                        from seeder import seed_data
-                        seed_data()
-                        app.logger.info("✅ Sample data seeded successfully")
-                    except Exception as e:
-                        app.logger.warning(f"Data seeding note: {e}")
-                        
-                else:
-                    # SCENARIO 3 & 4: Tables exist, check if data is populated
-                    cursor.execute("SELECT COUNT(*) FROM users")
-                    user_count = cursor.fetchone()[0]
-                    
-                    if user_count == 0:
-                        # SCENARIO 4: Tables exist but no data
-                        app.logger.info("📊 Database tables exist but no data - seeding...")
-                        try:
-                            from seeder import seed_data
-                            seed_data()
-                            app.logger.info("✅ Sample data seeded successfully")
-                        except Exception as e:
-                            app.logger.warning(f"Data seeding note: {e}")
-                    else:
-                        # SCENARIO 3: Everything is ready
-                        app.logger.info("✅ Database already populated and ready")
-                        
-        except Exception as e:
-            app.logger.error(f"⚠️ Auto-initialization warning: {e}")
-            # Don't crash the app if auto-init fails - just log and continue
-        # =====================================================================
-
+        # Run auto-initialization for Railway deployments
+        auto_initialize_database(app)
+    
     # =========================================================================
-    # ROUTE REGISTRATION - COMPLETE
+    # ROUTE REGISTRATION - HOSPITAL MANAGEMENT API
     # =========================================================================
+    
+    # Serve frontend static files
     @app.route('/')
     def serve_index():
+        """Serve the main frontend application."""
         return render_template('index.html')
 
     @app.route('/beds')
     def serve_beds():
+        """Serve the bed management interface."""
         return render_template('beds.html')
 
-    # Serve static files if you have any
+    # Static file serving
     @app.route('/static/<path:path>')
     def serve_static(path):
+        """Serve static files from static directory."""
         return send_from_directory('static', path)
     
     @app.route('/<path:path>')
     def serve_all_static(path):
+        """Serve other static files."""
         return send_from_directory('.', path)
     
+    # Health check endpoint for monitoring
     @app.route('/api/health')
     def health_check():
+        """Health check endpoint for deployment monitoring."""
         return jsonify({
             "status": "healthy",
             "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development'),
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0"
+            "version": "4.0.0"
         })
     
-    # Authentication routes
-    @app.route('/api/register', methods=['POST'])
-    @limiter.limit("5 per hour")
-    @validate_json
-    def register():
-        return handle_register()
+    # =========================================================================
+    # HOSPITAL MANAGEMENT API ENDPOINTS
+    # =========================================================================
     
-    @app.route('/api/login', methods=['POST'])
-    @limiter.limit("10 per 15 minutes")
-    @validate_json
-    def login():
-        return handle_login()
+    # Medical Staff Management
+    @app.route('/api/medical-staff')
+    def medical_staff():
+        """Get all active medical staff."""
+        return get_medical_staff()
     
-    @app.route('/api/logout', methods=['POST'])
-    @token_required
-    def logout():
-        return handle_logout()
+    # Guardia Schedules
+    @app.route('/api/guardia-schedules')
+    def guardia_schedules():
+        """Get guardia schedules with optional filtering."""
+        return get_guardia_schedules()
     
-    # Categories
-    @app.route('/api/categories')
-    def categories():
-        return get_categories()
+    # Bed Management
+    @app.route('/api/enhanced-beds')
+    def enhanced_beds():
+        """Get enhanced bed management data."""
+        return get_enhanced_beds()
     
-    # Posts routes
-    @app.route('/api/posts', methods=['GET', 'POST'])
-    @token_required
-    def posts():
-        if request.method == 'POST':
-            return create_post()
-        return get_posts()
+    # Department Units
+    @app.route('/api/department-units')
+    def department_units():
+        """Get all active department units."""
+        return get_department_units()
     
-    @app.route('/api/posts/<int:post_id>')
-    @token_required
-    def get_single_post(post_id):
-        return handle_get_post(post_id)
+    # Patient Flow
+    @app.route('/api/patient-flow')
+    def patient_flow():
+        """Get current patient flow information."""
+        return get_patient_flow()
     
-    @app.route('/api/posts/<int:post_id>/like', methods=['POST', 'DELETE'])
-    @token_required
-    def like_post(post_id):
-        return handle_like_post(post_id)
-    
-    @app.route('/api/posts/<int:post_id>/bookmark', methods=['POST', 'DELETE'])
-    @token_required
-    def bookmark_post(post_id):
-        return handle_bookmark_post(post_id)
-    
-    @app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
-    @token_required
-    @validate_json
-    def add_comment(post_id):
-        return handle_add_comment(post_id)
-    
-    @app.route('/api/comments/<int:comment_id>/like', methods=['POST', 'DELETE'])
-    @token_required
-    def like_comment(comment_id):
-        return handle_like_comment(comment_id)
-    
-    # Analytics
-    @app.route('/api/analytics/overview')
-    @token_required
-    @limiter.limit("60 per hour")
-    def analytics():
-        return handle_analytics()
+    # System Overview
+    @app.route('/api/system-overview')
+    def system_overview():
+        """Get comprehensive system overview and metrics."""
+        return get_system_overview()
     
     # =========================================================================
-    # ERROR HANDLERS - COMPLETE
+    # ERROR HANDLERS
     # =========================================================================
     @app.errorhandler(404)
     def not_found(e):
+        """Handle 404 - Not Found errors."""
         return jsonify({"success": False, "error": "Endpoint not found"}), 404
     
     @app.errorhandler(405)
     def method_not_allowed(e):
+        """Handle 405 - Method Not Allowed errors."""
         return jsonify({"success": False, "error": "Method not allowed"}), 405
     
     @app.errorhandler(500)
     def server_error(e):
+        """Handle 500 - Internal Server errors."""
         app.logger.error(f"500 error: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
     
     @app.errorhandler(413)
     def too_large(e):
+        """Handle 413 - Request Too Large errors."""
         return jsonify({"success": False, "error": "Request body too large"}), 413
     
     # =========================================================================
-    # MIDDLEWARE - COMPLETE
+    # REQUEST MIDDLEWARE
     # =========================================================================
     @app.before_request
     def log_request_info():
+        """Log basic request information for all endpoints except static files."""
         if request.endpoint and request.endpoint != 'static':
             app.logger.info(f"{request.method} {request.path} - IP: {request.remote_addr}")
     
     @app.after_request
     def add_security_headers(response):
+        """Add security headers to all responses."""
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         
+        # HSTS for production
         if os.environ.get('RAILWAY_ENVIRONMENT') == 'production':
             response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         
@@ -1404,20 +1171,30 @@ def create_app(config_class=RailwayConfig):
     
     return app
 
+
 # =============================================================================
 # APPLICATION STARTUP
 # =============================================================================
+
+# Create Flask application instance
 app = create_app()
 
 if __name__ == '__main__':
+    """
+    Main application entry point when run directly.
+    Configured for Railway deployment with proper host and port binding.
+    """
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('RAILWAY_ENVIRONMENT') != 'production'
     
-    app.logger.info(f"Starting Railway-optimized Flask application on port {port}")
+    app.logger.info(f"🚀 Starting PneumoTrack Enterprise on port {port}")
+    app.logger.info(f"🔧 Debug mode: {debug}")
+    app.logger.info(f"🏥 Database: {app.config['DB_NAME']}")
     
+    # Start Flask development server
     app.run(
-        host='0.0.0.0',
+        host='0.0.0.0',  # Bind to all interfaces for Railway
         port=port,
         debug=debug,
-        threaded=True
+        threaded=True  # Handle multiple requests concurrently
     )
