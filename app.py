@@ -1,1694 +1,1268 @@
 """
-app.py - PURE BUSINESS LOGIC & APIs with Enhanced Bed Management
-A+ WITH HONORS VERSION: No authentication + Enhanced features + Full Frontend Compatibility
-INCLUDES: /api/beds/enhanced/update-status endpoint
+Railway-Optimized Flask Forum Application - COMPLETE REWRITE
+Fully production-ready for Railway deployment
 """
-from flask import Flask, jsonify, send_from_directory, g, request
-import sqlite3
-import json
-from datetime import datetime, timedelta, timezone
+
 import os
 import logging
-import time
-from functools import wraps
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+import sqlite3
+import jwt
+import bcrypt
+import secrets
+import hashlib
+import html
+import bleach
 import re
+import random
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
+from functools import wraps
 from contextlib import contextmanager
 
-# ----------------------------------------------------------------------
-# CONFIGURATION
-# ----------------------------------------------------------------------
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-    DATABASE = 'pneumotrack_enterprise.db'
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
-    API_VERSION = 'v1'
-    ITEMS_PER_PAGE = 50
-    CACHE_TIMEOUT = 300  # 5 minutes
+from flask import Flask, request, jsonify, send_from_directory, current_app
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 
-# ----------------------------------------------------------------------
-# APP INITIALIZATION
-# ----------------------------------------------------------------------
-app = Flask(__name__)
-app.config.from_object(Config)
+# =============================================================================
+# CONFIGURATION FOR RAILWAY
+# =============================================================================
+class RailwayConfig:
+    PORT = int(os.environ.get('PORT', 5000))
+    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+    DB_NAME = os.environ.get('DB_NAME', 'railway_forum.db')
+    RATE_LIMIT_PER_HOUR = int(os.environ.get('RATE_LIMIT_PER_HOUR', '2000'))
+    JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', '24'))
+    BCRYPT_ROUNDS = 12
+    MIN_PASSWORD_LENGTH = 8
+    MAX_USERNAME_LENGTH = 20
+    MAX_POST_LENGTH = 10000
+    MAX_COMMENT_LENGTH = 2000
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    CONNECTION_TIMEOUT = 30
+    WAL_MODE = True
 
-@app.after_request
-def add_security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    return response
-
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["2000 per day", "500 per hour"],
-    storage_uri="memory://"
-)
-
-logging.basicConfig(
-    level=getattr(logging, app.config['LOG_LEVEL']),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# Global metrics
-start_time = time.time()
-request_count = 0
-error_count = 0
-
-# ----------------------------------------------------------------------
-# ENHANCED DATABASE MANAGEMENT
-# ----------------------------------------------------------------------
-def get_db():
-    """Get database connection with connection pooling"""
-    if 'db' not in g:
-        try:
-            g.db = sqlite3.connect(
-                app.config['DATABASE'], 
+# =============================================================================
+# DATABASE MANAGEMENT - COMPLETE REWRITE
+# =============================================================================
+class DatabaseManager:
+    def __init__(self, app):
+        self.app = app
+        self._connection = None
+    
+    @property
+    def connection(self):
+        if self._connection is None:
+            self._connection = sqlite3.connect(
+                self.app.config['DB_NAME'],
                 check_same_thread=False,
-                timeout=30
+                timeout=self.app.config['CONNECTION_TIMEOUT']
             )
-            g.db.row_factory = sqlite3.Row
-            # Enable foreign keys and better performance
-            g.db.execute("PRAGMA foreign_keys = ON")
-            g.db.execute("PRAGMA journal_mode = WAL")
-            g.db.execute("PRAGMA cache_size = -64000")  # 64MB cache
-        except sqlite3.Error as e:
-            logger.error(f"Database connection failed: {e}")
-            raise
-    return g.db
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            if self.app.config['WAL_MODE']:
+                self._connection.execute("PRAGMA journal_mode = WAL")
+            self._connection.execute("PRAGMA synchronous = NORMAL")
+            self._connection.execute("PRAGMA cache_size = -64000")
+        return self._connection
+    
+    def close(self):
+        if self._connection:
+            self._connection.close()
+            self._connection = None
 
-@contextmanager
-def transaction():
-    """Context manager for database transactions"""
-    db = get_db()
-    try:
-        yield db
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Transaction failed: {e}")
-        raise
-
-def close_db(e=None):
-    """Close database connection"""
-    db = g.pop('db', None)
-    if db is not None:
+    @contextmanager
+    def get_cursor(self):
+        """Context manager for database operations"""
         try:
-            db.close()
-        except sqlite3.Error as e:
-            logger.error(f"Error closing database: {e}")
+            cursor = self.connection.cursor()
+            yield cursor
+            self.connection.commit()
+        except Exception as e:
+            self.connection.rollback()
+            raise e
 
-# ----------------------------------------------------------------------
-# ENHANCED UTILITY FUNCTIONS
-# ----------------------------------------------------------------------
-def validate_required_fields(data, required_fields):
-    """Validate that all required fields are present and non-empty"""
-    if not data:
-        return {"status": "error", "message": "No data provided"}, 400
-    
-    missing = [field for field in required_fields if field not in data or data[field] in [None, ""]]
-    if missing:
-        return {"status": "error", "message": f"Missing required fields: {', '.join(missing)}"}, 400
-    return None
-
-def validate_room_code(room_code):
-    """Validate room code format (H1-H999)"""
-    if not re.match(r'^H[1-9][0-9]*$', room_code):
-        return False
-    return True
-
-def validate_bed_status(status):
-    """Validate bed status"""
-    valid_statuses = ['empty', 'occupied', 'reserved', 'cleaning', 'maintenance']
-    return status in valid_statuses
-
-def handle_database_error(e, operation, context=None):
-    """Enhanced error handling with context"""
-    global error_count
-    error_count += 1
-    
-    error_id = f"ERR{int(time.time()) % 10000:04d}"
-    error_context = f" - Context: {context}" if context else ""
-    
-    logger.error(f"Error {error_id} in {operation}: {e}{error_context}")
-    
-    return jsonify({
-        "status": "error", 
-        "message": "Database operation failed",
-        "error_id": error_id,
-        "operation": operation,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }), 500
-
-def paginate_query(query, page, per_page):
-    """Enhanced pagination with validation"""
-    offset = (page - 1) * per_page
-    return f"{query} LIMIT {per_page} OFFSET {offset}", offset
-
-def log_operation(operation, details, level="info"):
-    """Structured operation logging"""
-    log_data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "operation": operation,
-        "details": details,
-        "level": level.upper()
-    }
-    
-    if level == "error":
-        logger.error(json.dumps(log_data))
-    elif level == "warning":
-        logger.warning(json.dumps(log_data))
-    else:
-        logger.info(json.dumps(log_data))
-
-# ----------------------------------------------------------------------
-# FRONTEND ROUTES
-# ----------------------------------------------------------------------
-@app.route("/")
-def index():
-    """Serve main dashboard"""
-    return send_from_directory('.', 'index.html')
-
-@app.route("/beds")
-def beds_dashboard():
-    """Serve enhanced bed management dashboard"""
-    return send_from_directory('.', 'beds.html')
-
-@app.route("/<path:path>")
-def serve_static(path):
-    """Serve static files"""
-    return send_from_directory('.', path)
-
-# ----------------------------------------------------------------------
-# CORE SYSTEM ENDPOINTS
-# ----------------------------------------------------------------------
-@app.route("/api/system/status")
-@limiter.limit("500 per hour")
-def system_status():
-    """Enhanced system status with comprehensive metrics"""
-    global request_count
-    request_count += 1
+def init_database(app):
+    """COMPLETE database initialization"""
+    db_manager = DatabaseManager(app)
     
     try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            # Comprehensive system overview
-            cursor.execute("""
-                SELECT 
-                    (SELECT COUNT(*) FROM department_units WHERE is_active = 1) as total_units,
-                    (SELECT COUNT(*) FROM intelligent_beds) as total_beds,
-                    (SELECT COUNT(*) FROM intelligent_beds WHERE current_status = 'occupied') as occupied_beds,
-                    (SELECT COUNT(*) FROM medical_staff WHERE is_active = 1) as total_staff,
-                    (SELECT COUNT(*) FROM intelligent_beds WHERE vent_capable = 1 AND current_status = 'available') as available_vent_beds,
-                    (SELECT COUNT(*) FROM medical_equipment WHERE status = 'available') as available_equipment,
-                    (SELECT COUNT(*) FROM medical_staff WHERE is_on_call = 1) as on_call_now,
-                    (SELECT COUNT(*) FROM medical_staff WHERE absence_type IS NOT NULL) as absent_staff,
-                    (SELECT COUNT(*) FROM patient_flow WHERE current_status = 'admitted') as current_patients,
-                    (SELECT COUNT(*) FROM enhanced_beds WHERE status = 'occupied') as enhanced_occupied_beds,
-                    (SELECT COUNT(*) FROM enhanced_beds WHERE status = 'empty') as enhanced_empty_beds,
-                    (SELECT COUNT(*) FROM predictive_alerts WHERE resolved = 0 AND severity IN ('high', 'critical')) as critical_alerts
+        with db_manager.get_cursor() as cursor:
+            # COMPLETE schema creation
+            cursor.executescript("""
+                CREATE TABLE IF NOT EXISTS users(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                    password TEXT NOT NULL,
+                    email TEXT UNIQUE,
+                    full_name TEXT,
+                    avatar_color TEXT DEFAULT '#007AFF',
+                    bio TEXT,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    last_login DATETIME,
+                    is_active BOOLEAN DEFAULT 1,
+                    reputation INTEGER DEFAULT 0,
+                    post_count INTEGER DEFAULT 0,
+                    comment_count INTEGER DEFAULT 0,
+                    like_count INTEGER DEFAULT 0,
+                    is_moderator BOOLEAN DEFAULT 0,
+                    is_admin BOOLEAN DEFAULT 0,
+                    email_verified BOOLEAN DEFAULT 0,
+                    verification_token TEXT,
+                    reset_token TEXT,
+                    reset_token_expiry DATETIME,
+                    last_password_change DATETIME DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE IF NOT EXISTS categories(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    description TEXT,
+                    color TEXT DEFAULT '#007AFF',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    post_count INTEGER DEFAULT 0,
+                    last_post_date DATETIME
+                );
+
+                CREATE TABLE IF NOT EXISTS posts(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT NOT NULL,
+                    content_search TEXT,
+                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
+                    last_activity DATETIME NOT NULL DEFAULT (datetime('now')),
+                    likes_count INTEGER DEFAULT 0,
+                    comments_count INTEGER DEFAULT 0,
+                    is_pinned BOOLEAN DEFAULT 0,
+                    is_locked BOOLEAN DEFAULT 0,
+                    is_deleted BOOLEAN DEFAULT 0,
+                    tags TEXT,
+                    edited_at DATETIME,
+                    edited_by INTEGER,
+                    view_count INTEGER DEFAULT 0,
+                    featured_until DATETIME,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(edited_by) REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS comments(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
+                    likes_count INTEGER DEFAULT 0,
+                    edited_at DATETIME,
+                    edited_by INTEGER,
+                    parent_comment_id INTEGER,
+                    is_deleted BOOLEAN DEFAULT 0,
+                    depth INTEGER DEFAULT 0,
+                    path TEXT DEFAULT '',
+                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(parent_comment_id) REFERENCES comments(id) ON DELETE CASCADE,
+                    FOREIGN KEY(edited_by) REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS likes(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    post_id INTEGER,
+                    comment_id INTEGER,
+                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
+                    type TEXT DEFAULT 'like',
+                    UNIQUE(user_id, post_id, comment_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                    FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE,
+                    CHECK((post_id IS NOT NULL AND comment_id IS NULL) OR (post_id IS NULL AND comment_id IS NOT NULL))
+                );
+
+                CREATE TABLE IF NOT EXISTS bookmarks(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    post_id INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    notes TEXT,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, post_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_sessions(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    session_token TEXT UNIQUE NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    expires_at DATETIME NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    last_activity DATETIME NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS user_activity(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    timestamp DATETIME NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS reports(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reporter_id INTEGER NOT NULL,
+                    post_id INTEGER,
+                    comment_id INTEGER,
+                    reason TEXT NOT NULL,
+                    description TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    resolved_at DATETIME,
+                    resolved_by INTEGER,
+                    FOREIGN KEY(reporter_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                    FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE,
+                    FOREIGN KEY(resolved_by) REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS notifications(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    data TEXT,
+                    is_read BOOLEAN DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    expires_at DATETIME,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
             """)
-            overview = cursor.fetchone()
+
+            # Create indexes
+            cursor.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_posts_user_category ON posts(user_id, category);
+                CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_posts_last_activity ON posts(last_activity DESC);
+                CREATE INDEX IF NOT EXISTS idx_posts_popularity ON posts(likes_count DESC, comments_count DESC);
+                CREATE INDEX IF NOT EXISTS idx_comments_post_path ON comments(post_id, path);
+                CREATE INDEX IF NOT EXISTS idx_comments_user ON comments(user_id, timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_likes_user ON likes(user_id, timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_users_reputation ON users(reputation DESC);
+                CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
+                CREATE INDEX IF NOT EXISTS idx_activity_user ON user_activity(user_id, timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token);
+                CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id, expires_at);
+                CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id, created_at DESC);
+            """)
+
+            # Insert default categories
+            default_categories = [
+                ('General', 'General discussions and topics', '#007AFF'),
+                ('Technology', 'Tech news, programming, and gadgets', '#34C759'),
+                ('Science', 'Scientific discoveries and discussions', '#FF9500'),
+                ('Entertainment', 'Movies, games, and entertainment', '#AF52DE'),
+                ('Sports', 'Sports news and discussions', '#FF3B30'),
+                ('Politics', 'Political discussions and news', '#5856D6')
+            ]
             
-            # Calculate rates and percentages
-            total_beds = overview['total_beds'] or 1
-            occupancy_rate = round((overview['occupied_beds'] / total_beds * 100), 1)
-            
-            enhanced_total = (overview['enhanced_occupied_beds'] or 0) + (overview['enhanced_empty_beds'] or 0)
-            enhanced_occupancy_rate = round((overview['enhanced_occupied_beds'] / enhanced_total * 100), 1) if enhanced_total > 0 else 0
-            
-            # System performance metrics
-            uptime = time.time() - start_time
-            error_rate = round((error_count / max(request_count, 1) * 100), 2)
-            
-            log_operation("system_status", {
-                "request_count": request_count,
-                "error_count": error_count,
-                "uptime_seconds": uptime
-            })
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "hospital": {
-                        "name": "Advanced Neumology & Pulmonary Center",
-                        "chief": "Dr. Maria Rodriguez",
-                        "version": "PneumoTrack Enterprise v4.0",
-                        "system_uptime": round(uptime, 2)
-                    },
-                    "overview": {
-                        "total_units": overview['total_units'],
-                        "total_beds": overview['total_beds'],
-                        "occupied_beds": overview['occupied_beds'],
-                        "occupancy_rate": occupancy_rate,
-                        "total_staff": overview['total_staff'],
-                        "available_vent_beds": overview['available_vent_beds'],
-                        "available_equipment": overview['available_equipment'],
-                        "on_call_now": overview['on_call_now'],
-                        "absent_staff": overview['absent_staff'],
-                        "current_patients": overview['current_patients'],
-                        "critical_alerts": overview['critical_alerts']
-                    },
-                    "enhanced_beds": {
-                        "occupied": overview['enhanced_occupied_beds'],
-                        "empty": overview['enhanced_empty_beds'],
-                        "occupancy_rate": enhanced_occupancy_rate
-                    },
-                    "performance": {
-                        "total_requests": request_count,
-                        "error_count": error_count,
-                        "error_rate": error_rate,
-                        "response_time": "real-time"
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
+            cursor.executemany("""
+                INSERT OR IGNORE INTO categories (name, description, color) 
+                VALUES (?, ?, ?)
+            """, default_categories)
+
+        app.logger.info("Database schema initialized successfully")
+        
     except Exception as e:
-        return handle_database_error(e, "system_status", "comprehensive overview")
+        app.logger.error(f"Database initialization error: {e}")
+        raise
+    finally:
+        db_manager.close()
 
-# ----------------------------------------------------------------------
-# COMPATIBILITY ENDPOINTS FOR EXISTING FRONTEND
-# ----------------------------------------------------------------------
+# =============================================================================
+# SECURITY UTILITIES - COMPLETE REWRITE
+# =============================================================================
+class SecurityUtils:
+    @staticmethod
+    def validate_username(username):
+        if len(username) < 3:
+            raise ValueError("Username must be at least 3 characters")
+        if len(username) > 20:
+            raise ValueError("Username must be less than 20 characters")
+        if not re.match(r'^[a-zA-Z0-9_\-]+$', username):
+            raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
+        if username.lower() in ['admin', 'administrator', 'moderator', 'system']:
+            raise ValueError("Username not allowed")
+        return username.lower().strip()
+    
+    @staticmethod
+    def validate_password(password):
+        if len(password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        
+        checks = {
+            'uppercase': bool(re.search(r'[A-Z]', password)),
+            'lowercase': bool(re.search(r'[a-z]', password)),
+            'digit': bool(re.search(r'\d', password)),
+            'special': bool(re.search(r'[!@#$%^&*(),.?":{}|<>]', password))
+        }
+        
+        if sum(checks.values()) < 3:
+            raise ValueError("Password must contain at least 3 of: uppercase, lowercase, digits, special characters")
+        
+        common_passwords = {'password', '123456', 'qwerty', 'letmein', 'welcome'}
+        if password.lower() in common_passwords:
+            raise ValueError("Password is too common")
+        
+        return password
+    
+    @staticmethod
+    def sanitize_html(content, max_length=None):
+        if not content:
+            return content
+        
+        allowed_tags = bleach.sanitizer.ALLOWED_TAGS + [
+            'p', 'br', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+            'ul', 'ol', 'li', 'strong', 'em', 'u', 'strike', 'blockquote',
+            'code', 'pre', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
+        ]
+        
+        allowed_attributes = {
+            '*': ['class', 'style', 'id'],
+            'a': ['href', 'title', 'target', 'rel'],
+            'img': ['src', 'alt', 'width', 'height', 'title'],
+            'code': ['class'],
+            'span': ['style']
+        }
+        
+        cleaned = bleach.clean(
+            content,
+            tags=allowed_tags,
+            attributes=allowed_attributes,
+            strip=True,
+            strip_comments=True
+        )
+        
+        cleaned = re.sub(r'javascript:', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'vbscript:', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'on\w+=', '', cleaned, flags=re.IGNORECASE)
+        
+        if max_length and len(cleaned) > max_length:
+            cleaned = cleaned[:max_length]
+        
+        return cleaned.strip()
+    
+    @staticmethod
+    def hash_password(password):
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(12))
+    
+    @staticmethod
+    def check_password(password, hashed):
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), hashed)
+        except Exception:
+            return False
+    
+    @staticmethod
+    def generate_secure_token(length=32):
+        return secrets.token_hex(length)
 
-@app.route("/api/beds")
-@limiter.limit("500 per hour")
-def get_beds_legacy():
-    """Legacy endpoint for original beds system"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
+# =============================================================================
+# AUTHENTICATION DECORATORS - COMPLETE REWRITE
+# =============================================================================
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("Authorization")
+        
+        if not token:
+            return jsonify({"success": False, "error": "Authentication token required"}), 401
+        
+        if not token.startswith('Bearer '):
+            return jsonify({"success": False, "error": "Invalid token format"}), 401
+        
+        token = token[7:]
+        
+        try:
+            decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
             
-            cursor.execute("""
-                SELECT b.*, u.name as unit_name, u.code as unit_code
-                FROM intelligent_beds b
-                JOIN department_units u ON b.unit_id = u.id
-                ORDER BY b.unit_id, b.bed_number
-            """)
-            
-            beds = []
-            for row in cursor.fetchall():
-                bed_data = {
-                    "id": row['id'],
-                    "bed_number": row['bed_number'],
-                    "display_name": row['display_name'],
-                    "unit_name": row['unit_name'],
-                    "room": row['room_number'],
-                    "current_status": row['current_status'],
-                    "vent_capable": bool(row['vent_capable']),
-                    "oxygen_type": row['oxygen_type'],
-                    "monitor_type": row['monitor_type'],
-                    "is_negative_pressure": bool(row['is_negative_pressure']),
-                    "is_procedure_ready": bool(row['is_procedure_ready']),
-                    "priority_level": row['priority_level']
-                }
-                beds.append(bed_data)
-            
-            return jsonify({
-                "status": "success",
-                "data": beds
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_beds_legacy")
-
-@app.route("/api/units")
-@limiter.limit("500 per hour")
-def get_units_legacy():
-    """Legacy endpoint for units"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            cursor.execute("""
-                SELECT u.*, 
-                       COUNT(b.id) as total_beds,
-                       SUM(CASE WHEN b.current_status = 'occupied' THEN 1 ELSE 0 END) as occupied_beds
-                FROM department_units u
-                LEFT JOIN intelligent_beds b ON u.id = b.unit_id
-                WHERE u.is_active = 1
-                GROUP BY u.id
-                ORDER BY u.name
-            """)
-            
-            units = []
-            for row in cursor.fetchall():
-                total_beds = row['total_beds'] or 0
-                occupied_beds = row['occupied_beds'] or 0
-                occupancy_rate = round((occupied_beds / total_beds * 100), 1) if total_beds > 0 else 0
+            db_manager = DatabaseManager(current_app)
+            with db_manager.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, username, is_active, last_login, avatar_color 
+                    FROM users WHERE id = ?
+                """, (decoded["user_id"],))
+                user = cursor.fetchone()
                 
-                units.append({
-                    "id": row['id'],
-                    "name": row['name'],
-                    "code": row['code'],
-                    "specialty": row['specialty'],
-                    "color": row['color_code'],
-                    "icon": row['icon'],
-                    "beds": {
-                        "total": total_beds,
-                        "occupied": occupied_beds,
-                        "occupancy_rate": occupancy_rate
-                    },
-                    "status": row['status']
-                })
-            
-            return jsonify({
-                "status": "success",
-                "data": units
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_units_legacy")
-
-@app.route("/api/equipment")
-@limiter.limit("500 per hour")
-def get_equipment_legacy():
-    """Legacy endpoint for equipment"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            cursor.execute("""
-                SELECT e.*, u.name as unit_name 
-                FROM medical_equipment e
-                LEFT JOIN department_units u ON e.current_location = u.id
-                ORDER BY e.equipment_type, e.status
-            """)
-            
-            equipment = []
-            for row in cursor.fetchall():
-                equipment_data = {
-                    "id": row['id'],
-                    "type": row['equipment_type'],
-                    "model": row['model'],
-                    "status": row['status'],
-                    "location": row['unit_name'],
-                    "maintenance_due": row['maintenance_due']
-                }
-                equipment.append(equipment_data)
-            
-            return jsonify({
-                "status": "success",
-                "data": equipment
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_equipment_legacy")
-
-@app.route("/api/announcements")
-@limiter.limit("500 per hour")
-def get_announcements_legacy():
-    """Legacy endpoint for announcements"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("""
-                SELECT * FROM department_announcements 
-                WHERE effective_until IS NULL OR effective_until > CURRENT_TIMESTAMP
-                ORDER BY created_at DESC LIMIT 10
-            """)
-            announcements = [dict(row) for row in cursor.fetchall()]
-            return jsonify({"status": "success", "data": announcements})
-    except Exception as e:
-        return handle_database_error(e, "get_announcements_legacy")
-
-@app.route("/api/clinical/load")
-@limiter.limit("500 per hour")
-def get_clinical_load_legacy():
-    """Legacy endpoint for clinical load"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("SELECT * FROM daily_clinical_load ORDER BY report_date DESC LIMIT 1")
-            load_data = cursor.fetchone()
-            
-            if load_data:
-                return jsonify({
-                    "status": "success",
-                    "data": dict(load_data)
-                })
-            else:
-                return jsonify({
-                    "status": "success",
-                    "data": {},
-                    "message": "No clinical data available"
-                })
+                if not user:
+                    return jsonify({"success": False, "error": "User not found"}), 401                
+                if not user["is_active"]:
+                    return jsonify({"success": False, "error": "Account deactivated"}), 403
                 
-    except Exception as e:
-        return handle_database_error(e, "get_clinical_load_legacy")
-
-@app.route("/api/guardia/schedule")
-@limiter.limit("500 per hour")
-def get_guardia_schedule_legacy():
-    """Legacy endpoint for guardia schedule"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
+                request.user_id = user["id"]
+                request.username = user["username"]
+                request.user_data = dict(user)
             
-            start_date = datetime.now().date()
-            end_date = start_date + timedelta(days=7)
-            
-            cursor.execute("""
-                SELECT g.*, s.first_name, s.last_name, s.specialization, u.name as unit_name
-                FROM guardia_schedules g
-                JOIN medical_staff s ON g.staff_id = s.id
-                JOIN department_units u ON g.unit_id = u.id
-                WHERE g.schedule_date BETWEEN ? AND ?
-                ORDER BY g.schedule_date, g.shift_type
-            """, (start_date, end_date))
-            
-            schedule = []
-            for row in cursor.fetchall():
-                schedule.append({
-                    "id": row['id'],
-                    "staff_name": f"{row['first_name']} {row['last_name']}",
-                    "specialization": row['specialization'],
-                    "schedule_date": row['schedule_date'],
-                    "shift_type": row['shift_type'],
-                    "unit_name": row['unit_name'],
-                    "status": row['status']
-                })
-            
-            return jsonify({
-                "status": "success",
-                "data": schedule
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_guardia_schedule_legacy")
-
-@app.route("/api/absence/requests")
-@limiter.limit("500 per hour")
-def get_absence_requests_legacy():
-    """Legacy endpoint for absence requests"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("""
-                SELECT a.*, s.first_name || ' ' || s.last_name as staff_name, s.specialization
-                FROM absence_requests a
-                JOIN medical_staff s ON a.staff_id = s.id
-                WHERE a.status = 'pending'
-                ORDER BY a.start_date
-            """)
-            absences = [dict(row) for row in cursor.fetchall()]
-            return jsonify({"status": "success", "data": absences})
-    except Exception as e:
-        return handle_database_error(e, "get_absence_requests_legacy")
-
-@app.route("/api/alerts/intelligent")
-@limiter.limit("500 per hour")
-def get_intelligent_alerts():
-    """Placeholder for intelligent alerts"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("""
-                SELECT * FROM predictive_alerts 
-                WHERE resolved = 0 
-                ORDER BY severity DESC, triggered_at DESC 
-                LIMIT 10
-            """)
-            alerts = [dict(row) for row in cursor.fetchall()]
-            return jsonify({"status": "success", "data": alerts})
-    except Exception as e:
-        return handle_database_error(e, "get_intelligent_alerts")
-
-@app.route("/api/analytics/dashboard")
-@limiter.limit("500 per hour")
-def get_dashboard_analytics():
-    """Dashboard analytics"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            cursor.execute("""
-                SELECT 
-                    (SELECT COUNT(*) FROM intelligent_beds WHERE current_status = 'occupied') as occupied_beds,
-                    (SELECT COUNT(*) FROM intelligent_beds WHERE current_status = 'available') as available_beds,
-                    (SELECT COUNT(*) FROM medical_staff WHERE is_on_call = 1) as on_call_staff,
-                    (SELECT COUNT(*) FROM predictive_alerts WHERE resolved = 0 AND severity = 'high') as high_alerts
-            """)
-            
-            stats = cursor.fetchone()
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "occupancy_trend": "stable",
-                    "staff_availability": "good" if stats['on_call_staff'] > 2 else "limited",
-                    "equipment_status": "operational",
-                    "alerts_count": stats['high_alerts'],
-                    "bed_utilization": round((stats['occupied_beds'] / (stats['occupied_beds'] + stats['available_beds']) * 100), 1) if (stats['occupied_beds'] + stats['available_beds']) > 0 else 0
-                }
-            })
-    except Exception as e:
-        return handle_database_error(e, "get_dashboard_analytics")
-
-@app.route("/api/staff/availability")
-@limiter.limit("500 per hour")
-def get_staff_availability():
-    """Staff availability summary"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("""
-                SELECT 
-                    SUM(CASE WHEN current_status = 'available' THEN 1 ELSE 0 END) as available,
-                    SUM(CASE WHEN current_status = 'busy' THEN 1 ELSE 0 END) as busy,
-                    SUM(CASE WHEN current_status = 'off_duty' THEN 1 ELSE 0 END) as off_duty
-                FROM medical_staff 
-                WHERE is_active = 1
-            """)
-            availability = cursor.fetchone()
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "available": availability['available'] or 0,
-                    "busy": availability['busy'] or 0,
-                    "off_duty": availability['off_duty'] or 0
-                }
-            })
-    except Exception as e:
-        return handle_database_error(e, "get_staff_availability")
-
-@app.route("/api/dashboard/summary")
-@limiter.limit("500 per hour")
-def get_dashboard_summary():
-    """Comprehensive dashboard summary"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            cursor.execute("""
-                SELECT 
-                    (SELECT COUNT(*) FROM department_units WHERE is_active = 1) as total_units,
-                    (SELECT COUNT(*) FROM intelligent_beds) as total_beds,
-                    (SELECT COUNT(*) FROM intelligent_beds WHERE current_status = 'occupied') as occupied_beds,
-                    (SELECT COUNT(*) FROM medical_staff WHERE is_active = 1) as total_staff,
-                    (SELECT COUNT(*) FROM medical_staff WHERE is_on_call = 1) as on_call_staff,
-                    (SELECT COUNT(*) FROM patient_flow WHERE current_status = 'admitted') as current_patients,
-                    (SELECT COUNT(*) FROM predictive_alerts WHERE resolved = 0 AND severity IN ('high', 'critical')) as critical_alerts
-            """)
-            
-            stats = cursor.fetchone()
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "units": stats['total_units'],
-                    "beds": {
-                        "total": stats['total_beds'],
-                        "occupied": stats['occupied_beds'],
-                        "available": stats['total_beds'] - stats['occupied_beds']
-                    },
-                    "staff": {
-                        "total": stats['total_staff'],
-                        "on_call": stats['on_call_staff']
-                    },
-                    "patients": stats['current_patients'],
-                    "alerts": stats['critical_alerts']
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_dashboard_summary")
-
-# ----------------------------------------------------------------------
-# ENHANCED BED MANAGEMENT ENDPOINTS (A+ FEATURES)
-# ----------------------------------------------------------------------
-@app.route("/api/beds/enhanced/update-status", methods=['POST'])
-@limiter.limit("100 per hour")
-def update_bed_status():
-    """Quick update bed status with audit trail"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "No data provided"}), 400
+        except jwt.ExpiredSignatureError:
+            return jsonify({"success": False, "error": "Token expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"success": False, "error": "Invalid token"}), 401
+        except Exception as e:
+            current_app.logger.error(f"Token validation error: {e}")
+            return jsonify({"success": False, "error": "Token validation failed"}), 401
         
-        bed_id = data.get('bed_id')
-        new_status = data.get('status')
-        update_reason = data.get('update_reason', 'Quick status update')
+        return f(*args, **kwargs)
+    return decorated
+
+def validate_json(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Content-Type must be application/json"}), 400
         
-        # Validate required fields
-        if not bed_id:
-            return jsonify({"status": "error", "message": "Bed ID is required"}), 400
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"success": False, "error": "Invalid JSON data"}), 400
         
-        if not new_status:
-            return jsonify({"status": "error", "message": "Status is required"}), 400
-        
-        if not validate_bed_status(new_status):
-            return jsonify({"status": "error", "message": f"Invalid bed status: {new_status}"}), 400
-        
-        with transaction() as db:
-            cursor = db.cursor()
+        request.json_data = data
+        return f(*args, **kwargs)
+    return decorated_function
+
+# =============================================================================
+# UTILITY FUNCTIONS - COMPLETE REWRITE
+# =============================================================================
+def log_user_activity(user_id, action, details=None):
+    """Log user activity"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            ip_address = request.remote_addr
+            user_agent = request.headers.get('User-Agent')
             
-            # Get current bed state
-            cursor.execute("SELECT * FROM enhanced_beds WHERE id = ?", (bed_id,))
-            current_bed = cursor.fetchone()
+            cursor.execute("""INSERT INTO user_activity 
+                        (user_id, action, details, ip_address, user_agent) 
+                        VALUES (?, ?, ?, ?, ?)""",
+                     (user_id, action, str(details) if details else None, ip_address, user_agent))
+    except Exception as e:
+        current_app.logger.error(f"Activity logging error: {e}")
+
+def create_notification(user_id, type, title, message, data=None, expires_hours=24):
+    """Create user notification"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            expires_at = datetime.now() + timedelta(hours=expires_hours) if expires_hours else None
             
-            if not current_bed:
-                return jsonify({"status": "error", "message": "Bed not found"}), 404
-            
-            # Update bed status
             cursor.execute("""
-                UPDATE enhanced_beds 
-                SET status = ?, last_updated = CURRENT_TIMESTAMP, updated_by = 'system'
-                WHERE id = ?
-            """, (new_status, bed_id))
-            
-            # Create audit trail entry
-            cursor.execute("""
-                INSERT INTO bed_audit_trail 
-                (bed_id, old_status, new_status, updated_by, update_reason, patient_id)
+                INSERT INTO notifications (user_id, type, title, message, data, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                bed_id,
-                current_bed['status'],
-                new_status,
-                'system',
-                update_reason,
-                current_bed['patient_id']
-            ))
+            """, (user_id, type, title, message, data, expires_at))
             
-            # Get updated bed info
+            return cursor.lastrowid
+    except Exception as e:
+        current_app.logger.error(f"Notification creation error: {e}")
+        return None
+
+def format_timestamp(timestamp):
+    """Format timestamp for display"""
+    if not timestamp:
+        return "Recently"
+    
+    try:
+        if isinstance(timestamp, str):
+            post_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        else:
+            post_time = timestamp
+            
+        now = datetime.now()
+        diff = now - post_time
+        
+        if diff.days > 365:
+            years = diff.days // 365
+            return f"{years} year{'s' if years > 1 else ''} ago"
+        elif diff.days > 30:
+            months = diff.days // 30
+            return f"{months} month{'s' if months > 1 else ''} ago"
+        elif diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds > 3600:
+            return f"{diff.seconds // 3600}h ago"
+        elif diff.seconds > 60:
+            return f"{diff.seconds // 60}m ago"
+        else:
+            return "Just now"
+    except:
+        return "Recently"
+
+def generate_avatar_color():
+    colors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30', '#AF52DE', '#5856D6', '#FF2D55', '#32D74B']
+    return random.choice(colors)
+
+# =============================================================================
+# ROUTE HANDLERS - COMPLETE REWRITE
+# =============================================================================
+def handle_register():
+    """COMPLETE user registration handler"""
+    data = request.json_data
+    
+    try:
+        username = SecurityUtils.validate_username(data.get("username", ""))
+        password = SecurityUtils.validate_password(data.get("password", ""))
+        email = data.get("email")
+        
+        if email:
+            if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+                raise ValueError("Invalid email format")
+        
+        full_name = SecurityUtils.sanitize_html(data.get("full_name", ""), 50)
+        bio = SecurityUtils.sanitize_html(data.get("bio", ""), 200)
+        
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("SELECT id FROM users WHERE username = ? OR email = ?", (username, email))
+            if cursor.fetchone():
+                raise ValueError("Username or email already exists")
+            
+            hashed_pw = SecurityUtils.hash_password(password)
+            avatar_color = generate_avatar_color()
+            verification_token = SecurityUtils.generate_secure_token() if email else None
+            
+            cursor.execute("""INSERT INTO users 
+                        (username, password, email, full_name, avatar_color, bio, verification_token) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                     (username, hashed_pw, email, full_name, avatar_color, bio, verification_token))
+            
+            user_id = cursor.lastrowid
+        
+        log_user_activity(user_id, "user_registered", {"email_provided": bool(email)})
+        current_app.logger.info(f"New user registered: {username} (ID: {user_id})")
+        
+        return jsonify({
+            "success": True, 
+            "message": "Account created successfully",
+            "user_id": user_id,
+            "requires_verification": bool(email)
+        })
+    
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Registration error: {e}")
+        return jsonify({"success": False, "error": "Registration failed"}), 500
+
+def handle_login():
+    """COMPLETE login handler"""
+    data = request.json_data
+    
+    try:
+        username = data.get("username", "").strip().lower()
+        password = data.get("password", "")
+        remember_me = data.get("remember_me", False)
+        
+        if not username or not password:
+            raise ValueError("Username and password required")
+        
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
             cursor.execute("""
-                SELECT b.*, 
-                       p.patient_code,
-                       p.primary_diagnosis
-                FROM enhanced_beds b
-                LEFT JOIN patient_flow p ON b.patient_id = p.id
-                WHERE b.id = ?
-            """, (bed_id,))
+                SELECT id, password, username, avatar_color, is_active, email_verified 
+                FROM users WHERE username = ? OR email = ?
+            """, (username, username))
             
-            updated_bed = cursor.fetchone()
+            user = cursor.fetchone()
             
-            bed_data = {
-                "id": updated_bed['id'],
-                "room_code": updated_bed['room_code'],
-                "bed_number": updated_bed['bed_number'],
-                "display_name": updated_bed['display_name'],
-                "status": updated_bed['status'],
-                "patient_id": updated_bed['patient_id'],
-                "patient_code": updated_bed['patient_code'],
-                "diagnosis": updated_bed['primary_diagnosis'],
-                "clinical_needs": updated_bed['clinical_needs'].split(',') if updated_bed['clinical_needs'] else [],
-                "equipment": updated_bed['equipment'].split(',') if updated_bed['equipment'] else [],
-                "last_updated": updated_bed['last_updated'],
-                "updated_by": updated_bed['updated_by'],
-                "notes": updated_bed['notes']
+            if not user or not SecurityUtils.check_password(password, user["password"]):
+                log_user_activity(None, "failed_login", {"username": username})
+                raise ValueError("Invalid credentials")
+            
+            if not user["is_active"]:
+                raise ValueError("Account deactivated")
+            
+            cursor.execute("UPDATE users SET last_login = datetime('now') WHERE id = ?", (user["id"],))
+            
+            token_expiry = timedelta(hours=24) if remember_me else timedelta(hours=6)
+            token = jwt.encode({
+                "user_id": user["id"],
+                "username": user["username"],
+                "exp": datetime.utcnow() + token_expiry
+            }, current_app.config['SECRET_KEY'], algorithm="HS256")
+            
+            session_token = SecurityUtils.generate_secure_token()
+            expires_at = datetime.now() + token_expiry
+            
+            cursor.execute("""
+                INSERT INTO user_sessions 
+                (user_id, session_token, expires_at, ip_address, user_agent) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (user["id"], session_token, expires_at, request.remote_addr, request.headers.get('User-Agent')))
+        
+        log_user_activity(user["id"], "login_success")
+        
+        return jsonify({
+            "success": True, 
+            "token": token,
+            "session_token": session_token,
+            "expires_in": int(token_expiry.total_seconds()),
+            "user": {
+                "id": user["id"],
+                "username": user["username"],
+                "avatar_color": user["avatar_color"],
+                "email_verified": user["email_verified"]
+            }
+        })
+        
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 401
+    except Exception as e:
+        current_app.logger.error(f"Login error: {e}")
+        return jsonify({"success": False, "error": "Login failed"}), 500
+
+def handle_logout():
+    """COMPLETE logout handler"""
+    session_token = request.headers.get('X-Session-Token')
+    
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            if session_token:
+                cursor.execute("""
+                    UPDATE user_sessions SET is_active = 0 
+                    WHERE session_token = ? AND user_id = ?
+                """, (session_token, request.user_id))
+            
+            log_user_activity(request.user_id, "logout")
+            return jsonify({"success": True, "message": "Logged out successfully"})
+            
+    except Exception as e:
+        current_app.logger.error(f"Logout error: {e}")
+        return jsonify({"success": False, "error": "Logout failed"}), 500
+
+def get_categories():
+    """COMPLETE categories handler"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("SELECT * FROM categories WHERE is_active = 1 ORDER BY name")
+            categories = [dict(row) for row in cursor.fetchall()]
+            return jsonify({"success": True, "categories": categories})
+    except Exception as e:
+        current_app.logger.error(f"Categories error: {e}")
+        return jsonify({"success": False, "error": "Failed to get categories"}), 500
+
+def create_post():
+    """COMPLETE post creation handler"""
+    data = request.json_data
+    
+    try:
+        category = SecurityUtils.sanitize_html(data.get("category", ""), 50)
+        content = SecurityUtils.sanitize_html(data.get("content", ""), current_app.config['MAX_POST_LENGTH'])
+        title = SecurityUtils.sanitize_html(data.get("title", ""), 200)
+        
+        if len(content.strip()) < 10:
+            raise ValueError("Content must be at least 10 characters")
+        
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("SELECT name FROM categories WHERE name = ? AND is_active = 1", (category,))
+            if not cursor.fetchone():
+                raise ValueError("Invalid category")
+            
+            cursor.execute("""
+                INSERT INTO posts (user_id, category, title, content) 
+                VALUES (?, ?, ?, ?)
+            """, (request.user_id, category, title, content))
+            
+            post_id = cursor.lastrowid
+            
+            cursor.execute("UPDATE users SET post_count = post_count + 1 WHERE id = ?", (request.user_id,))
+            
+            cursor.execute("""
+                UPDATE categories SET 
+                post_count = post_count + 1,
+                last_post_date = datetime('now')
+                WHERE name = ?
+            """, (category,))
+        
+        log_user_activity(request.user_id, "post_created", {"post_id": post_id, "category": category})
+        
+        return jsonify({
+            "success": True, 
+            "message": "Post created successfully", 
+            "post_id": post_id
+        }), 201
+        
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Post creation error: {e}")
+        return jsonify({"success": False, "error": "Failed to create post"}), 500
+
+def get_posts():
+    """COMPLETE posts retrieval handler"""
+    try:
+        page = max(1, request.args.get('page', 1, type=int))
+        per_page = min(max(1, request.args.get('per_page', 10, type=int)), 50)
+        category = request.args.get('category', '')
+        search = SecurityUtils.sanitize_html(request.args.get('search', ''), 100)
+        sort = request.args.get('sort', 'newest')
+        user_id = request.args.get('user_id', type=int)
+        
+        offset = (page - 1) * per_page
+        
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            query = """
+                SELECT p.*, u.username, u.avatar_color, u.reputation,
+                       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.is_deleted = 0) as real_comments_count
+                FROM posts p 
+                JOIN users u ON p.user_id = u.id 
+                WHERE p.is_deleted = 0 AND u.is_active = 1
+            """
+            
+            count_query = """
+                SELECT COUNT(*) 
+                FROM posts p 
+                JOIN users u ON p.user_id = u.id 
+                WHERE p.is_deleted = 0 AND u.is_active = 1
+            """
+            
+            params = []
+            
+            if category:
+                query += " AND p.category = ?"
+                count_query += " AND p.category = ?"
+                params.append(category)
+            
+            if search:
+                query += " AND (p.content LIKE ? OR u.username LIKE ? OR p.title LIKE ?)"
+                count_query += " AND (p.content LIKE ? OR u.username LIKE ? OR p.title LIKE ?)"
+                search_term = f'%{search}%'
+                params.extend([search_term, search_term, search_term])
+            
+            if user_id:
+                query += " AND p.user_id = ?"
+                count_query += " AND p.user_id = ?"
+                params.append(user_id)
+            
+            sort_options = {
+                'newest': 'p.timestamp DESC',
+                'oldest': 'p.timestamp ASC',
+                'popular': 'p.likes_count DESC, p.comments_count DESC',
+                'active': 'p.last_activity DESC'
             }
             
-            log_operation("update_bed_status", {
-                "bed_id": bed_id,
-                "old_status": current_bed['status'],
-                "new_status": new_status,
-                "reason": update_reason
-            })
+            query += f" ORDER BY {sort_options.get(sort, 'p.timestamp DESC')}"
+            query += " LIMIT ? OFFSET ?"
+            
+            count_params = params.copy()
+            params.extend([per_page, offset])
+            
+            cursor.execute(count_query, count_params)
+            total_count = cursor.fetchone()[0]
+            
+            cursor.execute(query, params)
+            rows = [dict(row) for row in cursor.fetchall()]
+            
+            for post in rows:
+                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
+                             (request.user_id, post['id']))
+                post['user_has_liked'] = cursor.fetchone() is not None
+                
+                cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?",
+                             (request.user_id, post['id']))
+                post['user_has_bookmarked'] = cursor.fetchone() is not None
+                
+                post['formatted_timestamp'] = format_timestamp(post['timestamp'])
+                post['formatted_last_activity'] = format_timestamp(post['last_activity'])
             
             return jsonify({
-                "status": "success",
-                "message": f"Bed status updated to {new_status}",
-                "data": bed_data
+                "success": True, 
+                "data": rows,
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total_count,
+                    "pages": (total_count + per_page - 1) // per_page
+                },
+                "filters": {
+                    "category": category,
+                    "search": search,
+                    "sort": sort
+                }
             })
             
     except Exception as e:
-        return handle_database_error(e, "update_bed_status", f"bed_id={bed_id}, status={new_status}")
+        current_app.logger.error(f"Posts retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve posts"}), 500
 
-@app.route("/api/beds/enhanced")
-@limiter.limit("1000 per hour")
-def get_enhanced_beds():
-    """Get all enhanced beds with advanced room structure and filtering"""
+def handle_get_post(post_id):
+    """COMPLETE single post handler"""
     try:
-        status_filter = request.args.get('status')
-        room_filter = request.args.get('room')
-        equipment_filter = request.args.get('equipment')
-        
-        with transaction() as db:
-            cursor = db.cursor()
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT p.*, u.username, u.avatar_color, u.reputation
+                FROM posts p 
+                JOIN users u ON p.user_id = u.id 
+                WHERE p.id = ? AND p.is_deleted = 0
+            """, (post_id,))
             
-            query = """
-                SELECT * FROM enhanced_beds 
-                WHERE 1=1
-            """
-            params = []
+            post = cursor.fetchone()
+            if not post:
+                return jsonify({"success": False, "error": "Post not found"}), 404
             
-            # Apply filters
-            if status_filter and validate_bed_status(status_filter):
-                query += " AND status = ?"
-                params.append(status_filter)
+            post = dict(post)
             
-            if room_filter and validate_room_code(room_filter):
-                query += " AND room_code = ?"
-                params.append(room_filter)
+            cursor.execute("""
+                SELECT c.*, u.username, u.avatar_color
+                FROM comments c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.post_id = ? AND c.is_deleted = 0
+                ORDER BY c.timestamp ASC
+            """, (post_id,))
             
-            if equipment_filter:
-                query += " AND equipment LIKE ?"
-                params.append(f'%{equipment_filter}%')
+            comments = [dict(row) for row in cursor.fetchall()]
             
-            query += " ORDER BY room_code, bed_number"
+            cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
+                         (request.user_id, post_id))
+            post['user_has_liked'] = cursor.fetchone() is not None
             
-            cursor.execute(query, params)
+            cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?",
+                         (request.user_id, post_id))
+            post['user_has_bookmarked'] = cursor.fetchone() is not None
             
-            beds = []
-            for row in cursor.fetchall():
-                bed_data = {
-                    "id": row['id'],
-                    "room_code": row['room_code'],
-                    "bed_number": row['bed_number'],
-                    "display_name": row['display_name'],
-                    "status": row['status'],
-                    "patient_id": row['patient_id'],
-                    "clinical_needs": row['clinical_needs'].split(',') if row['clinical_needs'] else [],
-                    "equipment": row['equipment'].split(',') if row['equipment'] else [],
-                    "last_updated": row['last_updated'],
-                    "updated_by": row['updated_by'],
-                    "notes": row['notes']
-                }
-                beds.append(bed_data)
+            post['formatted_timestamp'] = format_timestamp(post['timestamp'])
             
-            # Advanced room grouping with statistics
-            rooms = {}
-            room_stats = {}
+            return jsonify({
+                "success": True,
+                "post": post,
+                "comments": comments
+            })
             
-            for bed in beds:
-                room_code = bed['room_code']
-                if room_code not in rooms:
-                    rooms[room_code] = []
-                    room_stats[room_code] = {
-                        'total': 0,
-                        'occupied': 0,
-                        'empty': 0,
-                        'other': 0
-                    }
+    except Exception as e:
+        current_app.logger.error(f"Post retrieval error: {e}")
+        return jsonify({"success": False, "error": "Failed to retrieve post"}), 500
+
+def handle_like_post(post_id):
+    """COMPLETE post like handler"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            if request.method == 'POST':
+                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND post_id = ?", 
+                             (request.user_id, post_id))
+                if cursor.fetchone():
+                    return jsonify({"success": False, "error": "Already liked"}), 400
                 
-                rooms[room_code].append(bed)
-                room_stats[room_code]['total'] += 1
+                cursor.execute("INSERT INTO likes (user_id, post_id) VALUES (?, ?)", 
+                             (request.user_id, post_id))
                 
-                if bed['status'] == 'occupied':
-                    room_stats[room_code]['occupied'] += 1
-                elif bed['status'] == 'empty':
-                    room_stats[room_code]['empty'] += 1
+                cursor.execute("UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?", (post_id,))
+                cursor.execute("UPDATE users SET like_count = like_count + 1 WHERE id = ?", (request.user_id,))
+                
+                return jsonify({"success": True, "message": "Post liked"})
+                
+            else:
+                cursor.execute("DELETE FROM likes WHERE user_id = ? AND post_id = ?", 
+                             (request.user_id, post_id))
+                
+                if cursor.rowcount > 0:
+                    cursor.execute("UPDATE posts SET likes_count = likes_count - 1 WHERE id = ?", (post_id,))
+                    cursor.execute("UPDATE users SET like_count = like_count - 1 WHERE id = ?", (request.user_id,))
+                    return jsonify({"success": True, "message": "Post unliked"})
                 else:
-                    room_stats[room_code]['other'] += 1
-            
-            # Calculate overall statistics
-            status_counts = {}
-            for bed in beds:
-                status = bed['status']
-                status_counts[status] = status_counts.get(status, 0) + 1
-            
-            total_beds = len(beds)
-            occupancy_rate = round((status_counts.get('occupied', 0) / total_beds * 100), 1) if total_beds > 0 else 0
-            
-            log_operation("get_enhanced_beds", {
-                "total_beds": total_beds,
-                "filters_applied": {
-                    "status": status_filter,
-                    "room": room_filter,
-                    "equipment": equipment_filter
-                }
-            })
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "beds": beds,
-                    "rooms": rooms,
-                    "statistics": {
-                        "total_beds": total_beds,
-                        "total_rooms": len(rooms),
-                        "occupancy_rate": occupancy_rate,
-                        "status_breakdown": status_counts,
-                        "room_statistics": room_stats
-                    },
-                    "filters": {
-                        "status": status_filter,
-                        "room": room_filter,
-                        "equipment": equipment_filter
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_enhanced_beds", f"filters: status={status_filter}, room={room_filter}")
-
-@app.route("/api/beds/enhanced/<int:bed_id>", methods=['GET', 'PUT', 'DELETE'])
-@limiter.limit("500 per hour")
-def enhanced_bed_detail(bed_id):
-    """Advanced bed management with full CRUD operations"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            if request.method == 'DELETE':
-                # Get bed info before deletion for audit
-                cursor.execute("SELECT * FROM enhanced_beds WHERE id = ?", (bed_id,))
-                bed = cursor.fetchone()
-                
-                if not bed:
-                    return jsonify({"status": "error", "message": "Bed not found"}), 404
-                
-                # Create audit trail entry
-                cursor.execute("""
-                    INSERT INTO bed_audit_trail 
-                    (bed_id, old_status, new_status, updated_by, update_reason, patient_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    bed_id, bed['status'], 'deleted', 'system', 'Bed removed from system', bed['patient_id']
-                ))
-                
-                # Delete the bed
-                cursor.execute("DELETE FROM enhanced_beds WHERE id = ?", (bed_id,))
-                
-                log_operation("delete_bed", {
-                    "bed_id": bed_id,
-                    "bed_number": bed['bed_number'],
-                    "room_code": bed['room_code']
-                })
-                
-                return jsonify({
-                    "status": "success", 
-                    "message": f"Bed {bed['bed_number']} deleted successfully"
-                })
-            
-            elif request.method == 'PUT':
-                data = request.get_json()
-                if not data:
-                    return jsonify({"status": "error", "message": "No data provided"}), 400
-                
-                # Get current bed state
-                cursor.execute("SELECT * FROM enhanced_beds WHERE id = ?", (bed_id,))
-                current_bed = cursor.fetchone()
-                
-                if not current_bed:
-                    return jsonify({"status": "error", "message": "Bed not found"}), 404
-                
-                # Validate new status if provided
-                new_status = data.get('status')
-                if new_status and not validate_bed_status(new_status):
-                    return jsonify({"status": "error", "message": f"Invalid bed status: {new_status}"}), 400
-                
-                # Update bed with validation
-                update_fields = []
-                update_params = []
-                
-                for field in ['status', 'patient_id', 'clinical_needs', 'equipment', 'notes']:
-                    if field in data:
-                        update_fields.append(f"{field} = ?")
-                        update_params.append(data[field])
-                
-                if update_fields:
-                    update_query = f"""
-                        UPDATE enhanced_beds 
-                        SET {', '.join(update_fields)}, last_updated = CURRENT_TIMESTAMP, updated_by = 'system'
-                        WHERE id = ?
-                    """
-                    update_params.append(bed_id)
-                    cursor.execute(update_query, update_params)
+                    return jsonify({"success": False, "error": "Like not found"}), 404
                     
-                    # Create comprehensive audit trail
-                    cursor.execute("""
-                        INSERT INTO bed_audit_trail 
-                        (bed_id, old_status, new_status, updated_by, update_reason, patient_id)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        bed_id,
-                        current_bed['status'],
-                        data.get('status', current_bed['status']),
-                        'system',
-                        data.get('update_reason', 'Bed update'),
-                        data.get('patient_id', current_bed['patient_id'])
-                    ))
-                
-                log_operation("update_bed", {
-                    "bed_id": bed_id,
-                    "changes": data,
-                    "previous_state": dict(current_bed)
-                })
-                
-                return jsonify({
-                    "status": "success", 
-                    "message": "Bed updated successfully",
-                    "data": {
-                        "bed_id": bed_id,
-                        "changes": data,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }
-                })
-            
-            else:  # GET
-                cursor.execute("SELECT * FROM enhanced_beds WHERE id = ?", (bed_id,))
-                bed = cursor.fetchone()
-                
-                if not bed:
-                    return jsonify({"status": "error", "message": "Bed not found"}), 404
-                
-                # Get comprehensive audit trail
-                cursor.execute("""
-                    SELECT * FROM bed_audit_trail 
-                    WHERE bed_id = ? 
-                    ORDER BY timestamp DESC 
-                    LIMIT 20
-                """, (bed_id,))
-                
-                audit_trail = []
-                for row in cursor.fetchall():
-                    audit_trail.append({
-                        "id": row['id'],
-                        "old_status": row['old_status'],
-                        "new_status": row['new_status'],
-                        "updated_by": row['updated_by'],
-                        "update_reason": row['update_reason'],
-                        "patient_id": row['patient_id'],
-                        "timestamp": row['timestamp']
-                    })
-                
-                # Get patient details if assigned
-                patient_info = None
-                if bed['patient_id']:
-                    cursor.execute("""
-                        SELECT patient_code, primary_diagnosis, acuity_level 
-                        FROM patient_flow 
-                        WHERE id = ?
-                    """, (bed['patient_id'],))
-                    patient_row = cursor.fetchone()
-                    if patient_row:
-                        patient_info = dict(patient_row)
-                
-                bed_data = {
-                    "id": bed['id'],
-                    "room_code": bed['room_code'],
-                    "bed_number": bed['bed_number'],
-                    "display_name": bed['display_name'],
-                    "status": bed['status'],
-                    "patient": patient_info,
-                    "clinical_needs": bed['clinical_needs'].split(',') if bed['clinical_needs'] else [],
-                    "equipment": bed['equipment'].split(',') if bed['equipment'] else [],
-                    "last_updated": bed['last_updated'],
-                    "updated_by": bed['updated_by'],
-                    "notes": bed['notes'],
-                    "audit_trail": audit_trail
-                }
-                
-                return jsonify({
-                    "status": "success",
-                    "data": bed_data
-                })
-                
     except Exception as e:
-        return handle_database_error(e, "enhanced_bed_detail", f"bed_id={bed_id}, method={request.method}")
+        current_app.logger.error(f"Like error: {e}")
+        return jsonify({"success": False, "error": "Failed to process like"}), 500
 
-@app.route("/api/beds/enhanced/bulk-update", methods=['POST'])
-@limiter.limit("100 per hour")
-def bulk_update_beds():
-    """Bulk update multiple beds atomically"""
+def handle_bookmark_post(post_id):
+    """COMPLETE bookmark handler"""
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "No data provided"}), 400
-        
-        bed_ids = data.get('bed_ids', [])
-        updates = data.get('updates', {})
-        
-        if not bed_ids:
-            return jsonify({"status": "error", "message": "No bed IDs provided"}), 400
-        
-        if not updates:
-            return jsonify({"status": "error", "message": "No updates provided"}), 400
-        
-        # Validate updates
-        if 'status' in updates and not validate_bed_status(updates['status']):
-            return jsonify({"status": "error", "message": f"Invalid status: {updates['status']}"}), 400
-        
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            # Get current states for audit
-            placeholders = ','.join('?' * len(bed_ids))
-            cursor.execute(f"SELECT * FROM enhanced_beds WHERE id IN ({placeholders})", bed_ids)
-            current_beds = cursor.fetchall()
-            
-            if len(current_beds) != len(bed_ids):
-                return jsonify({"status": "error", "message": "Some bed IDs not found"}), 404
-            
-            # Build update query
-            update_fields = []
-            update_params = []
-            
-            for field, value in updates.items():
-                if field in ['status', 'clinical_needs', 'equipment', 'notes']:
-                    update_fields.append(f"{field} = ?")
-                    update_params.append(value)
-            
-            if not update_fields:
-                return jsonify({"status": "error", "message": "No valid fields to update"}), 400
-            
-            update_query = f"""
-                UPDATE enhanced_beds 
-                SET {', '.join(update_fields)}, last_updated = CURRENT_TIMESTAMP, updated_by = 'system'
-                WHERE id IN ({placeholders})
-            """
-            update_params.extend(bed_ids)
-            
-            cursor.execute(update_query, update_params)
-            
-            # Create audit trail entries
-            for bed in current_beds:
-                cursor.execute("""
-                    INSERT INTO bed_audit_trail 
-                    (bed_id, old_status, new_status, updated_by, update_reason, patient_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    bed['id'],
-                    bed['status'],
-                    updates.get('status', bed['status']),
-                    'system',
-                    data.get('update_reason', 'Bulk update'),
-                    updates.get('patient_id', bed['patient_id'])
-                ))
-            
-            log_operation("bulk_update_beds", {
-                "bed_count": len(bed_ids),
-                "updates": updates,
-                "reason": data.get('update_reason')
-            })
-            
-            return jsonify({
-                "status": "success",
-                "message": f"Successfully updated {len(bed_ids)} beds",
-                "data": {
-                    "updated_count": len(bed_ids),
-                    "updates": updates,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            if request.method == 'POST':
+                cursor.execute("SELECT id FROM bookmarks WHERE user_id = ? AND post_id = ?", 
+                             (request.user_id, post_id))
+                if cursor.fetchone():
+                    return jsonify({"success": False, "error": "Already bookmarked"}), 400
+                
+                cursor.execute("INSERT INTO bookmarks (user_id, post_id) VALUES (?, ?)", 
+                             (request.user_id, post_id))
+                
+                return jsonify({"success": True, "message": "Post bookmarked"})
+                
+            else:
+                cursor.execute("DELETE FROM bookmarks WHERE user_id = ? AND post_id = ?", 
+                             (request.user_id, post_id))
+                
+                if cursor.rowcount > 0:
+                    return jsonify({"success": True, "message": "Post unbookmarked"})
+                else:
+                    return jsonify({"success": False, "error": "Bookmark not found"}), 404
+                    
     except Exception as e:
-        return handle_database_error(e, "bulk_update_beds", f"bed_count={len(bed_ids)}")
+        current_app.logger.error(f"Bookmark error: {e}")
+        return jsonify({"success": False, "error": "Failed to process bookmark"}), 500
 
-@app.route("/api/beds/enhanced/room/<room_code>")
-@limiter.limit("500 per hour")
-def get_room_beds(room_code):
-    """Get all beds for a specific room with enhanced room analytics"""
+def handle_add_comment(post_id):
+    """COMPLETE comment handler"""
+    data = request.json_data
+    
     try:
-        if not validate_room_code(room_code):
-            return jsonify({"status": "error", "message": "Invalid room code format"}), 400
+        content = SecurityUtils.sanitize_html(data.get("content", ""), current_app.config['MAX_COMMENT_LENGTH'])
         
-        with transaction() as db:
-            cursor = db.cursor()
+        if len(content.strip()) < 1:
+            raise ValueError("Comment content is required")
+        
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("SELECT id FROM posts WHERE id = ? AND is_deleted = 0", (post_id,))
+            if not cursor.fetchone():
+                raise ValueError("Post not found")
             
             cursor.execute("""
-                SELECT * FROM enhanced_beds 
-                WHERE room_code = ? 
-                ORDER BY bed_number
-            """, (room_code,))
+                INSERT INTO comments (post_id, user_id, content) 
+                VALUES (?, ?, ?)
+            """, (post_id, request.user_id, content))
             
-            beds = []
-            clinical_needs_summary = {}
-            equipment_summary = {}
+            comment_id = cursor.lastrowid
             
-            for row in cursor.fetchall():
-                bed_data = {
-                    "id": row['id'],
-                    "room_code": row['room_code'],
-                    "bed_number": row['bed_number'],
-                    "display_name": row['display_name'],
-                    "status": row['status'],
-                    "patient_id": row['patient_id'],
-                    "clinical_needs": row['clinical_needs'].split(',') if row['clinical_needs'] else [],
-                    "equipment": row['equipment'].split(',') if row['equipment'] else [],
-                    "last_updated": row['last_updated'],
-                    "updated_by": row['updated_by'],
-                    "notes": row['notes']
-                }
-                beds.append(bed_data)
-                
-                # Build clinical needs summary
-                for need in bed_data['clinical_needs']:
-                    clinical_needs_summary[need] = clinical_needs_summary.get(need, 0) + 1
-                
-                # Build equipment summary
-                for equip in bed_data['equipment']:
-                    equipment_summary[equip] = equipment_summary.get(equip, 0) + 1
+            cursor.execute("""
+                UPDATE posts SET 
+                comments_count = comments_count + 1,
+                last_activity = datetime('now')
+                WHERE id = ?
+            """, (post_id,))
             
-            # Calculate room analytics
-            status_counts = {}
-            for bed in beds:
-                status = bed['status']
-                status_counts[status] = status_counts.get(status, 0) + 1
-            
-            total_beds = len(beds)
-            occupancy_rate = round((status_counts.get('occupied', 0) / total_beds * 100), 1) if total_beds > 0 else 0
-            
-            # Room utilization score (0-100)
-            utilization_score = min(100, occupancy_rate + (len(clinical_needs_summary) * 10))
-            
-            log_operation("get_room_beds", {
-                "room_code": room_code,
-                "bed_count": total_beds,
-                "occupancy_rate": occupancy_rate
-            })
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "room_code": room_code,
-                    "beds": beds,
-                    "analytics": {
-                        "total_beds": total_beds,
-                        "occupancy_rate": occupancy_rate,
-                        "utilization_score": utilization_score,
-                        "status_breakdown": status_counts,
-                        "clinical_needs_summary": clinical_needs_summary,
-                        "equipment_summary": equipment_summary
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_room_beds", f"room_code={room_code}")
-
-@app.route("/api/beds/enhanced/audit-trail")
-@limiter.limit("500 per hour")
-def get_bed_audit_trail():
-    """Enhanced audit trail with advanced filtering and analytics"""
-    try:
-        bed_id = request.args.get('bed_id', type=int)
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        updated_by = request.args.get('updated_by')
-        action_type = request.args.get('action_type')  # status_change, patient_assignment, etc.
+            cursor.execute("UPDATE users SET comment_count = comment_count + 1 WHERE id = ?", (request.user_id,))
         
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            query = """
-                SELECT a.*, b.room_code, b.bed_number 
-                FROM bed_audit_trail a
-                JOIN enhanced_beds b ON a.bed_id = b.id
-                WHERE 1=1
-            """
-            params = []
-            
-            if bed_id:
-                query += " AND a.bed_id = ?"
-                params.append(bed_id)
-            
-            if start_date:
-                query += " AND DATE(a.timestamp) >= ?"
-                params.append(start_date)
-            
-            if end_date:
-                query += " AND DATE(a.timestamp) <= ?"
-                params.append(end_date)
-            
-            if updated_by:
-                query += " AND a.updated_by = ?"
-                params.append(updated_by)
-            
-            if action_type == 'status_change':
-                query += " AND a.old_status != a.new_status"
-            elif action_type == 'patient_assignment':
-                query += " AND a.patient_id IS NOT NULL"
-            
-            query += " ORDER BY a.timestamp DESC LIMIT 200"
-            
-            cursor.execute(query, params)
-            
-            audit_trail = []
-            status_changes = {}
-            user_activity = {}
-            
-            for row in cursor.fetchall():
-                audit_entry = {
-                    "id": row['id'],
-                    "bed_id": row['bed_id'],
-                    "room_code": row['room_code'],
-                    "bed_number": row['bed_number'],
-                    "old_status": row['old_status'],
-                    "new_status": row['new_status'],
-                    "updated_by": row['updated_by'],
-                    "update_reason": row['update_reason'],
-                    "patient_id": row['patient_id'],
-                    "timestamp": row['timestamp'],
-                    "change_type": "status_change" if row['old_status'] != row['new_status'] else "info_update"
-                }
-                audit_trail.append(audit_entry)
-                
-                # Build analytics
-                change_key = f"{row['old_status']}→{row['new_status']}"
-                status_changes[change_key] = status_changes.get(change_key, 0) + 1
-                user_activity[row['updated_by']] = user_activity.get(row['updated_by'], 0) + 1
-            
-            # Calculate audit statistics
-            total_entries = len(audit_trail)
-            unique_beds = len(set(entry['bed_id'] for entry in audit_trail))
-            unique_users = len(user_activity)
-            
-            most_common_change = max(status_changes.items(), key=lambda x: x[1]) if status_changes else ("N/A", 0)
-            most_active_user = max(user_activity.items(), key=lambda x: x[1]) if user_activity else ("N/A", 0)
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "audit_trail": audit_trail,
-                    "analytics": {
-                        "total_entries": total_entries,
-                        "time_range": {
-                            "start_date": start_date,
-                            "end_date": end_date
-                        },
-                        "coverage": {
-                            "unique_beds": unique_beds,
-                            "unique_users": unique_users
-                        },
-                        "activity_patterns": {
-                            "status_changes": status_changes,
-                            "user_activity": user_activity,
-                            "most_common_change": {
-                                "pattern": most_common_change[0],
-                                "count": most_common_change[1]
-                            },
-                            "most_active_user": {
-                                "user": most_active_user[0],
-                                "actions": most_active_user[1]
-                            }
-                        }
-                    },
-                    "filters_applied": {
-                        "bed_id": bed_id,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "updated_by": updated_by,
-                        "action_type": action_type
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_bed_audit_trail", f"filters: bed_id={bed_id}, date_range={start_date} to {end_date}")
-
-@app.route("/api/beds/enhanced/summary")
-@limiter.limit("300 per hour")
-def get_enhanced_beds_summary():
-    """Comprehensive enhanced beds summary with predictive analytics"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            # Overall summary with trends
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_beds,
-                    SUM(CASE WHEN status = 'empty' THEN 1 ELSE 0 END) as empty_beds,
-                    SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied_beds,
-                    SUM(CASE WHEN status = 'reserved' THEN 1 ELSE 0 END) as reserved_beds,
-                    SUM(CASE WHEN status = 'cleaning' THEN 1 ELSE 0 END) as cleaning_beds,
-                    SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) as maintenance_beds,
-                    COUNT(DISTINCT room_code) as total_rooms
-                FROM enhanced_beds
-            """)
-            overall = cursor.fetchone()
-            
-            # Room-level analytics
-            cursor.execute("""
-                SELECT 
-                    room_code,
-                    COUNT(*) as total_beds,
-                    SUM(CASE WHEN status = 'empty' THEN 1 ELSE 0 END) as empty_beds,
-                    SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied_beds,
-                    SUM(CASE WHEN equipment LIKE '%ventilator%' THEN 1 ELSE 0 END) as vent_beds,
-                    SUM(CASE WHEN clinical_needs LIKE '%oxygen%' THEN 1 ELSE 0 END) as oxygen_beds
-                FROM enhanced_beds
-                GROUP BY room_code
-                ORDER BY room_code
-            """)
-            
-            rooms_analytics = []
-            for row in cursor.fetchall():
-                room_data = {
-                    "room_code": row['room_code'],
-                    "total_beds": row['total_beds'],
-                    "empty_beds": row['empty_beds'],
-                    "occupied_beds": row['occupied_beds'],
-                    "occupancy_rate": round((row['occupied_beds'] / row['total_beds'] * 100), 1) if row['total_beds'] > 0 else 0,
-                    "specialized_equipment": {
-                        "ventilator_beds": row['vent_beds'],
-                        "oxygen_beds": row['oxygen_beds']
-                    }
-                }
-                rooms_analytics.append(room_data)
-            
-            # Recent activity metrics
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as updates_last_hour,
-                    COUNT(DISTINCT bed_id) as active_beds_last_hour,
-                    COUNT(DISTINCT updated_by) as active_users_last_hour
-                FROM bed_audit_trail 
-                WHERE timestamp >= datetime('now', '-1 hour')
-            """)
-            recent_activity = cursor.fetchone()
-            
-            # Equipment and clinical needs summary
-            cursor.execute("""
-                SELECT 
-                    GROUP_CONCAT(DISTINCT equipment) as all_equipment,
-                    GROUP_CONCAT(DISTINCT clinical_needs) as all_clinical_needs
-                FROM enhanced_beds 
-                WHERE equipment IS NOT NULL OR clinical_needs IS NOT NULL
-            """)
-            equipment_needs = cursor.fetchone()
-            
-            # Parse equipment and needs
-            equipment_list = []
-            if equipment_needs['all_equipment']:
-                equipment_set = set()
-                for equip_str in equipment_needs['all_equipment'].split(','):
-                    if equip_str:
-                        equipment_set.update(equip_str.split(','))
-                equipment_list = list(equipment_set)
-            
-            clinical_needs_list = []
-            if equipment_needs['all_clinical_needs']:
-                needs_set = set()
-                for needs_str in equipment_needs['all_clinical_needs'].split(','):
-                    if needs_str:
-                        needs_set.update(needs_str.split(','))
-                clinical_needs_list = list(needs_set)
-            
-            # Predictive capacity planning
-            total_beds = overall['total_beds']
-            occupied_beds = overall['occupied_beds']
-            available_capacity = overall['empty_beds'] + overall['cleaning_beds']
-            capacity_utilization = round((occupied_beds / total_beds * 100), 1) if total_beds > 0 else 0
-            
-            # Capacity alerts
-            capacity_alerts = []
-            if capacity_utilization > 85:
-                capacity_alerts.append("High occupancy - consider activating standby beds")
-            if available_capacity < 5:
-                capacity_alerts.append("Low available capacity - review discharge planning")
-            
-            log_operation("enhanced_beds_summary", {
-                "total_beds": total_beds,
-                "occupancy_rate": capacity_utilization,
-                "recent_activity": dict(recent_activity)
-            })
-            
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "overview": dict(overall),
-                    "capacity_analytics": {
-                        "total_capacity": total_beds,
-                        "current_utilization": capacity_utilization,
-                        "available_beds": available_capacity,
-                        "occupancy_rate": capacity_utilization,
-                        "alerts": capacity_alerts
-                    },
-                    "room_analytics": rooms_analytics,
-                    "equipment_inventory": {
-                        "total_types": len(equipment_list),
-                        "equipment_list": sorted(equipment_list),
-                        "clinical_needs": sorted(clinical_needs_list)
-                    },
-                    "activity_metrics": {
-                        "updates_last_hour": recent_activity['updates_last_hour'],
-                        "active_beds_last_hour": recent_activity['active_beds_last_hour'],
-                        "active_users_last_hour": recent_activity['active_users_last_hour'],
-                        "total_rooms": overall['total_rooms']
-                    },
-                    "predictive_insights": {
-                        "current_trend": "stable",  # Could be enhanced with historical data
-                        "recommended_actions": capacity_alerts,
-                        "capacity_forecast": "adequate" if available_capacity > 10 else "limited"
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_enhanced_beds_summary", "comprehensive analytics")
-
-# ----------------------------------------------------------------------
-# ADDITIONAL CORE ENDPOINTS (Optimized)
-# ----------------------------------------------------------------------
-
-@app.route("/api/staff")
-@limiter.limit("500 per hour")
-def get_staff():
-    """Get medical staff with enhanced analytics"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            
-            cursor.execute("""
-                SELECT s.*, u.name as primary_unit_name, u.code as primary_unit_code
-                FROM medical_staff s
-                LEFT JOIN department_units u ON s.primary_unit_id = u.id
-                WHERE s.is_active = 1
-                ORDER BY 
-                    CASE 
-                        WHEN s.role = 'chief' THEN 1
-                        WHEN s.role = 'senior_consultant' THEN 2
-                        ELSE 3
-                    END,
-                    s.last_name
-            """)
-            
-            staff = []
-            role_distribution = {}
-            unit_distribution = {}
-            
-            for row in cursor.fetchall():
-                staff_data = {
-                    "id": row['id'],
-                    "name": f"{row['title']} {row['first_name']} {row['last_name']}",
-                    "staff_id": row['staff_id'],
-                    "specialization": row['specialization'],
-                    "sub_specialization": row['sub_specialization'],
-                    "role": row['role'],
-                    "is_chief": row['role'] == 'chief',
-                    "current_status": row['current_status'],
-                    "is_on_call": bool(row['is_on_call']),
-                    "primary_unit": row['primary_unit_name'],
-                    "primary_unit_code": row['primary_unit_code'],
-                    "experience": row['years_experience'],
-                    "clinical_competencies": {
-                        "vent_trained": bool(row['vent_trained']),
-                        "procedure_trained": bool(row['procedure_trained']),
-                        "rapid_response_capable": bool(row['rapid_response_capable'])
-                    },
-                    "contact": {
-                        "email": row['email'],
-                        "phone": row['phone']
-                    },
-                    "guardia_count": row['guardia_count'],
-                    "last_guardia": row['last_guardia_date']
-                }
-                
-                if row['absence_type']:
-                    staff_data["absence_info"] = {
-                        "type": row['absence_type'],
-                        "start": row['absence_start'],
-                        "end": row['absence_end'],
-                        "reason": row['absence_reason']
-                    }
-                
-                # Update distributions
-                role_distribution[row['role']] = role_distribution.get(row['role'], 0) + 1
-                if row['primary_unit_name']:
-                    unit_distribution[row['primary_unit_name']] = unit_distribution.get(row['primary_unit_name'], 0) + 1
-                
-                staff.append(staff_data)
-            
-            # Staff analytics
-            total_staff = len(staff)
-            on_call_count = sum(1 for s in staff if s['is_on_call'])
-            available_count = sum(1 for s in staff if s['current_status'] == 'available')
-            
-            return jsonify({
-                "status": "success",
-                "data": staff,
-                "analytics": {
-                    "total_staff": total_staff,
-                    "on_call_count": on_call_count,
-                    "available_count": available_count,
-                    "role_distribution": role_distribution,
-                    "unit_distribution": unit_distribution
-                }
-            })
-            
-    except Exception as e:
-        return handle_database_error(e, "get_staff")
-
-# ----------------------------------------------------------------------
-# HEALTH AND METRICS ENDPOINTS
-# ----------------------------------------------------------------------
-
-@app.route("/api/health")
-@limiter.exempt
-def health_check():
-    """Comprehensive health check with system diagnostics"""
-    try:
-        with transaction() as db:
-            cursor = db.cursor()
-            cursor.execute("SELECT 1")  # Test connection
-            
-            # System diagnostics
-            cursor.execute("SELECT COUNT(*) as units FROM department_units WHERE is_active = 1")
-            units = cursor.fetchone()['units']
-            
-            cursor.execute("SELECT COUNT(*) as staff FROM medical_staff WHERE is_active = 1")
-            staff = cursor.fetchone()['staff']
-            
-            cursor.execute("SELECT COUNT(*) as patients FROM patient_flow WHERE current_status = 'admitted'")
-            patients = cursor.fetchone()['patients']
-            
-            cursor.execute("SELECT COUNT(*) as beds FROM enhanced_beds")
-            beds = cursor.fetchone()['beds']
-            
-            uptime = time.time() - start_time
-            memory_usage = os.getpid()
-            
-            # Database size
-            db_size = os.path.getsize(app.config['DATABASE']) if os.path.exists(app.config['DATABASE']) else 0
-            
-            return jsonify({
-                "status": "healthy",
-                "database": "connected",
-                "system": {
-                    "uptime_seconds": round(uptime, 2),
-                    "version": "PneumoTrack Enterprise v4.0",
-                    "memory_usage_pid": memory_usage,
-                    "database_size_bytes": db_size
-                },
-                "components": {
-                    "units": units,
-                    "staff": staff,
-                    "patients": patients,
-                    "beds": beds
-                },
-                "performance": {
-                    "total_requests": request_count,
-                    "error_count": error_count,
-                    "error_rate": round(error_count / max(request_count, 1) * 100, 2),
-                    "response_time": "real-time"
-                },
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
-            
-    except Exception as e:
+        log_user_activity(request.user_id, "comment_created", {"post_id": post_id, "comment_id": comment_id})
+        
         return jsonify({
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), 503
+            "success": True, 
+            "message": "Comment added successfully", 
+            "comment_id": comment_id
+        }), 201
+        
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Comment creation error: {e}")
+        return jsonify({"success": False, "error": "Failed to add comment"}), 500
 
-@app.route("/api/metrics")
-@limiter.limit("100 per hour")
-def metrics():
-    """Detailed system metrics for monitoring"""
-    uptime = time.time() - start_time
+def handle_like_comment(comment_id):
+    """COMPLETE comment like handler"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            if request.method == 'POST':
+                cursor.execute("SELECT id FROM likes WHERE user_id = ? AND comment_id = ?", 
+                             (request.user_id, comment_id))
+                if cursor.fetchone():
+                    return jsonify({"success": False, "error": "Already liked"}), 400
+                
+                cursor.execute("INSERT INTO likes (user_id, comment_id) VALUES (?, ?)", 
+                             (request.user_id, comment_id))
+                
+                cursor.execute("UPDATE comments SET likes_count = likes_count + 1 WHERE id = ?", (comment_id,))
+                
+                return jsonify({"success": True, "message": "Comment liked"})
+                
+            else:
+                cursor.execute("DELETE FROM likes WHERE user_id = ? AND comment_id = ?", 
+                             (request.user_id, comment_id))
+                
+                if cursor.rowcount > 0:
+                    cursor.execute("UPDATE comments SET likes_count = likes_count - 1 WHERE id = ?", (comment_id,))
+                    return jsonify({"success": True, "message": "Comment unliked"})
+                else:
+                    return jsonify({"success": False, "error": "Like not found"}), 404
+                    
+    except Exception as e:
+        current_app.logger.error(f"Comment like error: {e}")
+        return jsonify({"success": False, "error": "Failed to process like"}), 500
+
+def handle_analytics():
+    """COMPLETE analytics handler"""
+    try:
+        db_manager = DatabaseManager(current_app)
+        with db_manager.get_cursor() as cursor:
+            stats = {}
+            
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_users,
+                    COUNT(CASE WHEN last_login > datetime('now', '-7 days') THEN 1 END) as active_week,
+                    COUNT(CASE WHEN last_login > datetime('now', '-1 day') THEN 1 END) as active_today,
+                    COUNT(CASE WHEN created_at > datetime('now', '-7 days') THEN 1 END) as new_users_week,
+                    AVG(reputation) as avg_reputation
+                FROM users 
+                WHERE is_active = 1
+            """)
+            stats['users'] = dict(cursor.fetchone())
+            
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_posts,
+                    COUNT(CASE WHEN timestamp > datetime('now', '-7 days') THEN 1 END) as posts_week,
+                    COUNT(CASE WHEN timestamp > datetime('now', '-1 day') THEN 1 END) as posts_today,
+                    AVG(likes_count) as avg_likes,
+                    AVG(comments_count) as avg_comments,
+                    SUM(view_count) as total_views
+                FROM posts
+                WHERE is_deleted = 0
+            """)
+            stats['posts'] = dict(cursor.fetchone())
+            
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total_likes,
+                    COUNT(*) as total_comments,
+                    COUNT(DISTINCT user_id) as active_posters
+                FROM posts p
+                WHERE p.is_deleted = 0
+            """)
+            stats['engagement'] = dict(cursor.fetchone())
+            
+            cursor.execute("""
+                SELECT 
+                    c.name as category,
+                    c.post_count,
+                    c.color,
+                    COUNT(CASE WHEN p.timestamp > datetime('now', '-7 days') THEN 1 END) as posts_week,
+                    AVG(p.likes_count) as avg_likes,
+                    AVG(p.comments_count) as avg_comments
+                FROM categories c
+                LEFT JOIN posts p ON c.name = p.category AND p.is_deleted = 0
+                WHERE c.is_active = 1
+                GROUP BY c.id
+                ORDER BY c.post_count DESC
+                LIMIT 10
+            """)
+            stats['popular_categories'] = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.execute("""
+                SELECT 
+                    u.username,
+                    u.avatar_color,
+                    u.reputation,
+                    u.post_count,
+                    u.comment_count,
+                    u.like_count
+                FROM users u
+                WHERE u.is_active = 1
+                ORDER BY u.reputation DESC, u.post_count DESC
+                LIMIT 10
+            """)
+            stats['top_contributors'] = [dict(row) for row in cursor.fetchall()]
+            
+            return jsonify({
+                "success": True,
+                "analytics": stats,
+                "generated_at": datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        current_app.logger.error(f"Analytics error: {e}")
+        return jsonify({"success": False, "error": "Failed to get analytics"}), 500
+
+# =============================================================================
+# APPLICATION FACTORY - COMPLETE REWRITE
+# =============================================================================
+def create_app(config_class=RailwayConfig):
+    app = Flask(__name__)
+    app.config.from_object(config_class)
     
-    # Calculate additional metrics
-    hours_uptime = uptime / 3600
-    requests_per_hour = request_count / max(hours_uptime, 0.1)
+    # Enhanced CORS
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
     
-    return jsonify({
-        "status": "success",
-        "data": {
-            "uptime": {
-                "seconds": round(uptime, 2),
-                "hours": round(hours_uptime, 2),
-                "days": round(hours_uptime / 24, 2)
-            },
-            "requests": {
-                "total": request_count,
-                "errors": error_count,
-                "success_rate": round((request_count - error_count) / max(request_count, 1) * 100, 2),
-                "requests_per_hour": round(requests_per_hour, 2)
-            },
-            "system": {
-                "database": app.config['DATABASE'],
-                "version": app.config['API_VERSION'],
-                "start_time": datetime.fromtimestamp(start_time).isoformat()
-            },
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    })
-
-# ----------------------------------------------------------------------
-# ERROR HANDLERS
-# ----------------------------------------------------------------------
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        "status": "error", 
-        "message": "Endpoint not found",
-        "available_endpoints": [
-            "/api/system/status",
-            "/api/beds/enhanced",
-            "/api/staff",
-            "/api/health",
-            "/api/metrics"
-        ]
-    }), 404
-
-@app.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({"status": "error", "message": "Method not allowed"}), 405
-
-@app.errorhandler(429)
-def ratelimit_exceeded(error):
-    return jsonify({
-        "status": "error", 
-        "message": "Rate limit exceeded",
-        "retry_after": getattr(error, 'retry_after', 60)
-    }), 429
-
-@app.errorhandler(500)
-def internal_error(error):
-    global error_count
-    error_count += 1
-    logger.error(f"Internal error: {error}")
-    return jsonify({"status": "error", "message": "Internal server error"}), 500
-
-# ----------------------------------------------------------------------
-# APPLICATION LIFECYCLE
-# ----------------------------------------------------------------------
-@app.before_request
-def before_request():
-    """Initialize database connection before each request"""
-    get_db()
-
-@app.teardown_appcontext
-def teardown_db(exception):
-    """Clean up database connection after request"""
-    close_db()
-
-if __name__ == "__main__":
-    print("🚀 PneumoTrack Enterprise - A+ with Honors Edition")
-    print("📊 Enhanced API Server + Frontend")
-    print("🛏️ Advanced Bed Management System")
-    print("⚡ No Authentication - Development Mode")
-    print("💾 Using: pneumotrack_enterprise.db")
-    print("🔧 Features: Bulk operations, Analytics, Audit trails, Predictive insights")
-    print("✅ Full Frontend Compatibility: All legacy endpoints implemented")
-    print("✅ INCLUDES: /api/beds/enhanced/update-status endpoint")
+    # Security headers
+    csp = {
+        'default-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        'script-src': ["'self'", "https://cdn.jsdelivr.net"],
+        'font-src': ["'self'", "https://cdn.jsdelivr.net"],
+        'img-src': ["'self'", "data:", "https:"]
+    }
     
+    Talisman(
+        app,
+        content_security_policy=csp,
+        force_https=os.environ.get('RAILWAY_ENVIRONMENT') == 'production',
+        strict_transport_security=True
+    )
+    
+    # Rate limiting
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=[f"{config_class.RATE_LIMIT_PER_HOUR}/hour"],
+        storage_uri="memory://",
+        strategy="fixed-window"
+    )
+    
+    # Logging
+    logging.basicConfig(
+        level=logging.INFO if os.environ.get('RAILWAY_ENVIRONMENT') == 'production' else logging.DEBUG,
+        format='%(asctime)s %(levelname)s: %(message)s [%(name)s:%(lineno)d]'
+    )
+    app.logger.setLevel(logging.INFO)
+    
+    # Initialize database
+    with app.app_context():
+        init_database(app)
+    
+    # =========================================================================
+    # ROUTE REGISTRATION - COMPLETE
+    # =========================================================================
+    @app.route('/')
+    def serve_index():
+        return send_from_directory('.', 'index.html')
+    
+    @app.route('/<path:path>')
+    def serve_static(path):
+        return send_from_directory('.', path)
+    
+    @app.route('/api/health')
+    def health_check():
+        return jsonify({
+            "status": "healthy",
+            "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development'),
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0"
+        })
+    
+    # Authentication routes
+    @app.route('/api/register', methods=['POST'])
+    @limiter.limit("5 per hour")
+    @validate_json
+    def register():
+        return handle_register()
+    
+    @app.route('/api/login', methods=['POST'])
+    @limiter.limit("10 per 15 minutes")
+    @validate_json
+    def login():
+        return handle_login()
+    
+    @app.route('/api/logout', methods=['POST'])
+    @token_required
+    def logout():
+        return handle_logout()
+    
+    # Categories
+    @app.route('/api/categories')
+    def categories():
+        return get_categories()
+    
+    # Posts routes
+    @app.route('/api/posts', methods=['GET', 'POST'])
+    @token_required
+    def posts():
+        if request.method == 'POST':
+            return create_post()
+        return get_posts()
+    
+    @app.route('/api/posts/<int:post_id>')
+    @token_required
+    def get_single_post(post_id):
+        return handle_get_post(post_id)
+    
+    @app.route('/api/posts/<int:post_id>/like', methods=['POST', 'DELETE'])
+    @token_required
+    def like_post(post_id):
+        return handle_like_post(post_id)
+    
+    @app.route('/api/posts/<int:post_id>/bookmark', methods=['POST', 'DELETE'])
+    @token_required
+    def bookmark_post(post_id):
+        return handle_bookmark_post(post_id)
+    
+    @app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
+    @token_required
+    @validate_json
+    def add_comment(post_id):
+        return handle_add_comment(post_id)
+    
+    @app.route('/api/comments/<int:comment_id>/like', methods=['POST', 'DELETE'])
+    @token_required
+    def like_comment(comment_id):
+        return handle_like_comment(comment_id)
+    
+    # Analytics
+    @app.route('/api/analytics/overview')
+    @token_required
+    @limiter.limit("60 per hour")
+    def analytics():
+        return handle_analytics()
+    
+    # =========================================================================
+    # ERROR HANDLERS - COMPLETE
+    # =========================================================================
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({"success": False, "error": "Endpoint not found"}), 404
+    
+    @app.errorhandler(405)
+    def method_not_allowed(e):
+        return jsonify({"success": False, "error": "Method not allowed"}), 405
+    
+    @app.errorhandler(500)
+    def server_error(e):
+        app.logger.error(f"500 error: {str(e)}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+    
+    @app.errorhandler(413)
+    def too_large(e):
+        return jsonify({"success": False, "error": "Request body too large"}), 413
+    
+    # =========================================================================
+    # MIDDLEWARE - COMPLETE
+    # =========================================================================
+    @app.before_request
+    def log_request_info():
+        if request.endpoint and request.endpoint != 'static':
+            app.logger.info(f"{request.method} {request.path} - IP: {request.remote_addr}")
+    
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        
+        if os.environ.get('RAILWAY_ENVIRONMENT') == 'production':
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        
+        return response
+    
+    return app
+
+# =============================================================================
+# APPLICATION STARTUP
+# =============================================================================
+app = create_app()
+
+if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('DEBUG', 'False').lower() == 'true'
-    app.run(debug=debug, host='0.0.0.0', port=port)
+    debug = os.environ.get('RAILWAY_ENVIRONMENT') != 'production'
+    
+    app.logger.info(f"Starting Railway-optimized Flask application on port {port}")
+    
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=debug,
+        threaded=True
+    )
