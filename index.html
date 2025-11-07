@@ -1,0 +1,2390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PneumoTrack Enterprise - Advanced Clinical Command Center</title>
+    
+    <!-- Enhanced Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* Enhanced Design System */
+        :root {
+            --primary-blue: #1e40af;
+            --success-green: #059669;
+            --warning-orange: #d97706;
+            --danger-red: #dc2626;
+            --info-purple: #7c3aed;
+            --clinical-teal: #0d9488;
+            --guardia-amber: #f59e0b;
+        }
+        
+        /* Modern Glass Morphism */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .gradient-border {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2px;
+            border-radius: 12px;
+        }
+        
+        /* Advanced Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+        }
+        
+        .floating-card {
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* Enhanced Bed System */
+        .bed-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+            gap: 4px;
+        }
+        
+        .bed-icon {
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border-radius: 4px;
+            padding: 4px 2px;
+            margin: 1px;
+            min-width: 32px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.65rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            position: relative;
+        }
+        
+        .bed-icon.vent-capable::after {
+            content: "💨";
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            font-size: 0.5rem;
+        }
+        
+        .bed-icon.procedure-ready::before {
+            content: "🔬";
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            font-size: 0.5rem;
+        }
+        
+        .bed-icon:hover {
+            transform: scale(1.08);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 10;
+        }
+        
+        .bed-available {
+            background: linear-gradient(135deg, var(--success-green), #10b981);
+            color: white;
+        }
+        
+        .bed-occupied {
+            background: linear-gradient(135deg, var(--danger-red), #ef4444);
+            color: white;
+        }
+        
+        .bed-cleaning {
+            background: linear-gradient(135deg, var(--warning-orange), #f59e0b);
+            color: white;
+        }
+        
+        .bed-maintenance {
+            background: linear-gradient(135deg, #6b7280, #9ca3af);
+            color: white;
+        }
+        
+        /* Enhanced Bed Cards for Management Tab */
+        .bed-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border-radius: 8px;
+            padding: 12px 8px;
+            margin: 2px;
+            text-align: center;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .bed-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10;
+        }
+        
+        .bed-empty {
+            background: linear-gradient(135deg, #10b981, #34d399);
+            color: white;
+            border: 2px solid #10b981;
+        }
+        
+        .bed-occupied {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            border: 2px solid #ef4444;
+        }
+        
+        .bed-reserved {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+            color: white;
+            border: 2px solid #f59e0b;
+        }
+        
+        .bed-cleaning {
+            background: linear-gradient(135deg, #3b82f6, #60a5fa);
+            color: white;
+            border: 2px solid #3b82f6;
+        }
+        
+        .bed-maintenance {
+            background: linear-gradient(135deg, #6b7280, #9ca3af);
+            color: white;
+            border: 2px solid #6b7280;
+        }
+        
+        .bed-indicator {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+        
+        .vent-indicator {
+            background: #ec4899;
+        }
+        
+        .oxygen-indicator {
+            background: #06b6d4;
+        }
+        
+        .monitor-indicator {
+            background: #8b5cf6;
+        }
+        
+        /* Modern Data Visualization */
+        .sparkline {
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            height: 3px;
+            border-radius: 2px;
+        }
+        
+        /* Enhanced Status Indicators */
+        .status-pulse {
+            position: relative;
+        }
+        
+        .status-pulse::before {
+            content: '';
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-available::before { background-color: var(--success-green); }
+        .status-busy::before { background-color: var(--warning-orange); }
+        .status-critical::before { background-color: var(--danger-red); }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        
+        .status-available { background-color: var(--success-green); }
+        .status-occupied { background-color: var(--danger-red); }
+        .status-in-surgery { background-color: var(--info-purple); }
+        .status-on-break { background-color: var(--warning-orange); }
+        
+        /* Advanced Navigation */
+        .nav-glow {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        /* Enhanced Modal System */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+        }
+        
+        .clinical-badge {
+            background: linear-gradient(135deg, var(--clinical-teal), #14b8a6);
+            color: white;
+        }
+        
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Error States */
+        .error-state {
+            background: linear-gradient(135deg, #fef2f2, #fecaca);
+            border: 1px solid #fca5a5;
+        }
+
+        .loading-state {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 400px;
+        }
+
+        .toast {
+            margin-bottom: 10px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .toast-success {
+            background: #d1fae5;
+            border: 1px solid #a7f3d0;
+            color: #065f46;
+        }
+
+        .toast-error {
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+
+        .toast-warning {
+            background: #fef3c7;
+            border: 1px solid #fde68a;
+            color: #92400e;
+        }
+
+        .toast-info {
+            background: #dbeafe;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Enhanced Responsive Design */
+        @media (max-width: 768px) {
+            .mobile-stack {
+                flex-direction: column;
+            }
+            
+            .mobile-full {
+                width: 100%;
+            }
+            
+            .mobile-text-center {
+                text-align: center;
+            }
+        }
+
+        /* Advanced Chart Styles */
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        /* Print Styles */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            
+            .print-break {
+                page-break-after: always;
+            }
+        }
+
+        /* Focus Management */
+        .focus\:ring-2:focus {
+            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+        }
+
+        /* Performance Optimizations */
+        .will-change-transform {
+            will-change: transform;
+        }
+        
+        /* Room Header Styles */
+        .room-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .audit-entry {
+            border-left: 3px solid #3b82f6;
+            padding-left: 12px;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 min-h-screen font-sans antialiased">
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- REVOLUTIONARY HEADER -->
+    <header class="bg-white/90 backdrop-blur-md shadow-xl sticky top-0 z-50 border-b border-gray-200/50" id="main-header">
+        <div class="container mx-auto px-4 py-3">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div class="gradient-border rounded-2xl">
+                        <div class="bg-white p-3 rounded-2xl shadow-lg">
+                            <i class="fas fa-lungs text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                            PneumoTrack Enterprise
+                        </h1>
+                        <p class="text-sm text-gray-600 font-medium">Advanced Clinical Command Center v4.0</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <!-- Enhanced Status Indicators -->
+                    <div class="flex items-center space-x-3">
+                        <div class="flex items-center space-x-2 bg-green-50 px-3 py-1 rounded-full border border-green-200">
+                            <div class="status-pulse status-available"></div>
+                            <span class="text-sm font-medium text-green-700" id="system-status-text">System Online</span>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-semibold text-gray-800" id="user-display">User: <span class="text-blue-600" id="username-display">Developer</span></p>
+                            <p id="current-time" class="text-gray-600 text-sm font-medium"></p>
+                        </div>
+                    </div>
+                    
+                    <!-- User Avatar with Status -->
+                    <div class="relative">
+                        <div class="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-white font-bold shadow-lg" id="user-avatar">
+                            DEV
+                        </div>
+                        <div class="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 border-2 border-white rounded-full"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ENHANCED NAVIGATION WITH QUICK ACTIONS -->
+    <nav class="bg-white/80 backdrop-blur-sm shadow-sm sticky top-16 z-40 border-b border-gray-200/50" id="main-navigation">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between py-3">
+                <!-- Main Navigation -->
+                <div class="flex space-x-1 overflow-x-auto">
+                    <button class="nav-btn active px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-sm whitespace-nowrap transition-all duration-300 shadow-lg nav-glow" data-tab="dashboard">
+                        <i class="fas fa-tachometer-alt mr-2"></i>Command Center
+                    </button>
+                    <button class="nav-btn px-4 py-2 rounded-xl bg-white text-gray-700 font-medium text-sm whitespace-nowrap transition-all duration-300 hover:bg-gray-50 border border-gray-200" data-tab="guardia">
+                        <i class="fas fa-calendar-check mr-2"></i>Guardia System
+                    </button>
+                    <button class="nav-btn px-4 py-2 rounded-xl bg-white text-gray-700 font-medium text-sm whitespace-nowrap transition-all duration-300 hover:bg-gray-50 border border-gray-200" data-tab="clinical-load">
+                        <i class="fas fa-clipboard-list mr-2"></i>Clinical Load
+                    </button>
+                    <button class="nav-btn px-4 py-2 rounded-xl bg-white text-gray-700 font-medium text-sm whitespace-nowrap transition-all duration-300 hover:bg-gray-50 border border-gray-200" data-tab="beds">
+                        <i class="fas fa-bed mr-2"></i>Bed Management
+                    </button>
+                    <button class="nav-btn px-4 py-2 rounded-xl bg-white text-gray-700 font-medium text-sm whitespace-nowrap transition-all duration-300 hover:bg-gray-50 border border-gray-200" data-tab="staff">
+                        <i class="fas fa-user-md mr-2"></i>Medical Staff
+                    </button>
+                    <button class="nav-btn px-4 py-2 rounded-xl bg-white text-gray-700 font-medium text-sm whitespace-nowrap transition-all duration-300 hover:bg-gray-50 border border-gray-200" data-tab="analytics">
+                        <i class="fas fa-chart-bar mr-2"></i>Analytics
+                    </button>
+                </div>
+                
+                <!-- Quick Actions -->
+                <div class="flex space-x-2">
+                    <button class="quick-action-btn px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-200 text-sm font-medium" onclick="showNotification('New patient feature coming soon!', 'info')">
+                        <i class="fas fa-plus mr-1"></i>New Patient
+                    </button>
+                    <button class="quick-action-btn px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-200 text-sm font-medium" onclick="loadAlerts()">
+                        <i class="fas fa-bell mr-1"></i>Alerts
+                    </button>
+                    <button class="quick-action-btn px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-200 text-sm font-medium" onclick="loadAllData(true)">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- REVOLUTIONARY MAIN CONTENT -->
+    <main class="container mx-auto px-4 py-6" id="main-content">
+        <!-- ENHANCED DASHBOARD TAB -->
+        <div id="dashboard-tab" class="tab-content active">
+            <!-- Real-time KPI Dashboard -->
+            <div class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                <div class="glass-card rounded-2xl p-4 floating-card">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">Total Patients</p>
+                            <h3 id="total-patients" class="text-2xl font-bold text-gray-800 mt-1 loading-skeleton">--</h3>
+                            <div class="sparkline mt-2"></div>
+                        </div>
+                        <div class="bg-blue-100 p-3 rounded-xl">
+                            <i class="fas fa-procedures text-blue-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-4 floating-card" style="animation-delay: 0.2s;">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">Ventilator Patients</p>
+                            <h3 id="vent-patients" class="text-2xl font-bold text-red-600 mt-1 loading-skeleton">--</h3>
+                            <div class="sparkline mt-2 bg-gradient-to-r from-red-500 to-orange-500"></div>
+                        </div>
+                        <div class="bg-red-100 p-3 rounded-xl">
+                            <i class="fas fa-wind text-red-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-4 floating-card" style="animation-delay: 0.4s;">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">Available Vent Beds</p>
+                            <h3 id="vent-beds" class="text-2xl font-bold text-green-600 mt-1 loading-skeleton">--</h3>
+                            <p class="text-xs text-gray-500 mt-1">Critical Care Ready</p>
+                        </div>
+                        <div class="bg-green-100 p-3 rounded-xl">
+                            <i class="fas fa-lungs text-green-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-4 floating-card" style="animation-delay: 0.6s;">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">On-Call Staff</p>
+                            <h3 id="on-call-staff" class="text-2xl font-bold text-purple-600 mt-1 loading-skeleton">--</h3>
+                            <p class="text-xs text-gray-500 mt-1">Active Guardia</p>
+                        </div>
+                        <div class="bg-purple-100 p-3 rounded-xl">
+                            <i class="fas fa-user-md text-purple-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-4 floating-card" style="animation-delay: 0.8s;">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">Absent Staff</p>
+                            <h3 id="absent-staff" class="text-2xl font-bold text-orange-600 mt-1 loading-skeleton">--</h3>
+                            <p class="text-xs text-gray-500 mt-1">Requires Coverage</p>
+                        </div>
+                        <div class="bg-orange-100 p-3 rounded-xl">
+                            <i class="fas fa-user-clock text-orange-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-4 floating-card" style="animation-delay: 1s;">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-600 text-sm font-medium">Equipment Available</p>
+                            <h3 id="equipment-available" class="text-2xl font-bold text-cyan-600 mt-1 loading-skeleton">--</h3>
+                            <p class="text-xs text-gray-500 mt-1">Ready for Use</p>
+                        </div>
+                        <div class="bg-cyan-100 p-3 rounded-xl">
+                            <i class="fas fa-wind text-cyan-600 text-lg"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Main Layout -->
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+                <!-- Clinical Units with Advanced Visualization -->
+                <div class="xl:col-span-2">
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold text-gray-800 flex items-center">
+                                <i class="fas fa-hospital mr-3 text-blue-500"></i>
+                                Clinical Units Command View
+                            </h2>
+                            <div class="flex space-x-2">
+                                <button class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium" onclick="loadAllData(true)">
+                                    <i class="fas fa-sync-alt mr-1"></i>Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div id="units-command-view" class="space-y-4">
+                            <div class="loading-skeleton h-20 rounded-lg"></div>
+                            <div class="loading-skeleton h-20 rounded-lg"></div>
+                            <div class="loading-skeleton h-20 rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Alerts & Notifications Panel -->
+                <div class="space-y-6">
+                    <!-- Intelligent Alerts -->
+                    <div class="glass-card rounded-2xl p-6">
+                        <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-robot mr-2 text-purple-500"></i>
+                            AI-Powered Alerts
+                        </h2>
+                        <div id="ai-alerts-container" class="space-y-3 max-h-96 overflow-y-auto">
+                            <div class="loading-skeleton h-16 rounded-lg"></div>
+                            <div class="loading-skeleton h-16 rounded-lg"></div>
+                        </div>
+                    </div>
+
+                    <!-- Guardia Schedule Overview -->
+                    <div class="glass-card rounded-2xl p-6">
+                        <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-calendar-star mr-2 text-amber-500"></i>
+                            Today's Guardia
+                        </h2>
+                        <div id="todays-guardia" class="space-y-3">
+                            <div class="loading-skeleton h-12 rounded-lg"></div>
+                            <div class="loading-skeleton h-12 rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Patient Flow & Capacity Trends -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="glass-card rounded-2xl p-6">
+                    <h2 class="text-lg font-bold text-gray-800 mb-4">Clinical Announcements</h2>
+                    <div id="announcements-container" class="space-y-3 max-h-64 overflow-y-auto">
+                        <div class="loading-skeleton h-16 rounded-lg"></div>
+                        <div class="loading-skeleton h-16 rounded-lg"></div>
+                    </div>
+                </div>
+                <div class="glass-card rounded-2xl p-6">
+                    <h2 class="text-lg font-bold text-gray-800 mb-4">Equipment Status</h2>
+                    <div id="equipment-status" class="space-y-3">
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GUARDIA SYSTEM TAB -->
+        <div id="guardia-tab" class="tab-content hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800 flex items-center">
+                        <i class="fas fa-calendar-check mr-3 text-amber-500"></i>
+                        Guardia Management System
+                    </h2>
+                    <div class="flex space-x-3">
+                        <button class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition duration-200 font-semibold" onclick="showNotification('New guardia scheduling feature coming soon!', 'info')">
+                            <i class="fas fa-plus mr-2"></i>New Schedule
+                        </button>
+                        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-200 font-semibold" onclick="loadGuardiaData(true)">
+                            <i class="fas fa-sync-alt mr-2"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Guardia Calendar View -->
+                <div class="mb-6">
+                    <div id="guardia-calendar" class="bg-white rounded-xl p-4 border border-gray-200">
+                        <div class="loading-skeleton h-32 rounded-lg"></div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Guardia Management -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+                    <!-- Coverage Rules Management -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-shield-alt mr-2 text-green-500"></i>
+                            Coverage Rules
+                        </h3>
+                        <div id="coverage-rules-container">
+                            <div class="loading-skeleton h-32 rounded-lg"></div>
+                        </div>
+                    </div>
+
+                    <!-- Coverage Status -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-chart-pie mr-2 text-blue-500"></i>
+                            Current Coverage Status
+                        </h3>
+                        <div id="coverage-status-container">
+                            <div class="loading-skeleton h-32 rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Guardia Schedule & Absence Management -->
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <!-- Schedule Management -->
+                    <div class="xl:col-span-2">
+                        <div class="bg-white rounded-xl p-6 border border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Guardia Schedule</h3>
+                            <div id="guardia-schedule-table">
+                                <div class="loading-skeleton h-64 rounded-lg"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Absence & Coverage -->
+                    <div class="space-y-6">
+                        <div class="bg-white rounded-xl p-6 border border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Absence Requests</h3>
+                            <div id="absence-requests-list">
+                                <div class="loading-skeleton h-32 rounded-lg"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-6 border border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Staff Availability</h3>
+                            <div id="staff-availability-list">
+                                <div class="loading-skeleton h-32 rounded-lg"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Shift Swap Requests -->
+                <div class="mt-6">
+                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-exchange-alt mr-2 text-purple-500"></i>
+                            Shift Swap Requests
+                        </h3>
+                        <div id="shift-swap-requests">
+                            <div class="loading-skeleton h-32 rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CLINICAL LOAD TAB -->
+        <div id="clinical-load-tab" class="tab-content hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-800 flex items-center">
+                        <i class="fas fa-clipboard-list mr-3 text-cyan-600"></i>
+                        Daily Clinical Load Management
+                    </h2>
+                    <div class="text-sm text-gray-600">
+                        <i class="fas fa-user-md mr-1"></i>
+                        Chief: Dr. Maria Rodriguez
+                    </div>
+                </div>
+
+                <!-- Current Load Summary -->
+                <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h3 class="font-semibold text-gray-800 mb-3 flex items-center">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        Today's Clinical Summary
+                    </h3>
+                    <div id="current-load-summary" class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                        <div class="loading-skeleton h-16 rounded-lg"></div>
+                        <div class="loading-skeleton h-16 rounded-lg"></div>
+                        <div class="loading-skeleton h-16 rounded-lg"></div>
+                    </div>
+                </div>
+
+                <!-- Clinical Load Input Form -->
+                <form id="clinical-load-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="md:col-span-2">
+                        <h3 class="font-semibold text-gray-800 mb-3 flex items-center">
+                            <i class="fas fa-edit mr-2"></i>
+                            Update Clinical Load
+                        </h3>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Total Patients</label>
+                        <input type="number" id="total-patients-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="1000">
+                        <p class="text-xs text-red-600 hidden" id="total-patients-error"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">New Admissions (Today)</label>
+                        <input type="number" id="new-admissions-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="100">
+                        <p class="text-xs text-red-600 hidden" id="new-admissions-error"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Expected Discharges</label>
+                        <input type="number" id="expected-discharges-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="100">
+                        <p class="text-xs text-red-600 hidden" id="expected-discharges-error"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Ventilator Patients</label>
+                        <input type="number" id="vent-patients-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="50">
+                        <p class="text-xs text-red-600 hidden" id="vent-patients-error"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">High Flow O2 Patients</label>
+                        <input type="number" id="high-flow-patients-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="50">
+                        <p class="text-xs text-red-600 hidden" id="high-flow-patients-error"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Procedures Scheduled</label>
+                        <input type="number" id="procedures-input" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required min="0" max="20">
+                        <p class="text-xs text-red-600 hidden" id="procedures-error"></p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Clinical Notes</label>
+                        <textarea id="clinical-notes" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" rows="3" placeholder="Overnight incidents, special cases, equipment needs, staffing notes..."></textarea>
+                    </div>
+                    <div class="md:col-span-2 flex justify-between items-center">
+                        <button type="submit" class="bg-cyan-600 text-white px-6 py-3 rounded-lg hover:bg-cyan-700 transition duration-200 font-semibold flex items-center" id="submit-clinical-load">
+                            <i class="fas fa-save mr-2"></i>
+                            Update Clinical Load
+                        </button>
+                        <button type="button" class="text-cyan-600 hover:text-cyan-700 text-sm font-medium flex items-center" onclick="showNotification('Load history feature coming soon!', 'info')">
+                            <i class="fas fa-history mr-1"></i>
+                            View History
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Capacity Planning -->
+                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h3 class="font-semibold text-gray-800 mb-3 flex items-center">
+                        <i class="fas fa-chart-bar mr-2"></i>
+                        Capacity Planning
+                    </h3>
+                    <div id="capacity-planning" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BED MANAGEMENT TAB -->
+        <div id="beds-tab" class="tab-content hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-800 mb-2 lg:mb-0 flex items-center">
+                        <i class="fas fa-bed mr-2 text-blue-500"></i>
+                        Enhanced Bed Management
+                    </h2>
+                    
+                    <div class="flex flex-wrap gap-2">
+                        <a href="/beds" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 font-semibold flex items-center">
+                            <i class="fas fa-external-link-alt mr-2"></i>
+                            Open Full Dashboard
+                        </a>
+                        <button class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 font-semibold flex items-center" onclick="loadEnhancedBeds(true)">
+                            <i class="fas fa-sync-alt mr-2"></i>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Bed Statistics -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    <div class="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 text-center border border-green-200">
+                        <div class="text-2xl font-bold text-green-600" id="quick-total-beds">60</div>
+                        <div class="text-sm text-green-700 font-medium">Total Beds</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-4 text-center border border-emerald-200">
+                        <div class="text-2xl font-bold text-emerald-600" id="quick-empty-beds">--</div>
+                        <div class="text-sm text-emerald-700 font-medium">Available</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 text-center border border-red-200">
+                        <div class="text-2xl font-bold text-red-600" id="quick-occupied-beds">--</div>
+                        <div class="text-sm text-red-700 font-medium">Occupied</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 text-center border border-blue-200">
+                        <div class="text-2xl font-bold text-blue-600" id="quick-vent-beds">--</div>
+                        <div class="text-sm text-blue-700 font-medium">Vent Ready</div>
+                    </div>
+                </div>
+
+                <!-- Room Overview -->
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Room Overview</h3>
+                    <div id="rooms-overview" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                        <!-- Rooms will be dynamically loaded -->
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                        <div class="loading-skeleton h-20 rounded-lg"></div>
+                    </div>
+                </div>
+
+                <!-- Recent Bed Activity -->
+                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h3 class="font-semibold text-gray-800 mb-3 flex items-center justify-between">
+                        <span>
+                            <i class="fas fa-history mr-2"></i>
+                            Recent Bed Activity
+                        </span>
+                        <a href="/beds" class="text-blue-600 hover:text-blue-700 text-sm font-medium">View All</a>
+                    </h3>
+                    <div id="recent-bed-activity" class="space-y-2">
+                        <div class="loading-skeleton h-12 rounded-lg"></div>
+                        <div class="loading-skeleton h-12 rounded-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STAFF TAB -->
+        <div id="staff-tab" class="tab-content hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                    <i class="fas fa-user-md mr-2 text-green-500"></i>
+                    Clinical Staff Management
+                </h2>
+                
+                <!-- Enhanced Staff Statistics -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
+                    <div class="bg-blue-50 rounded-lg p-3 text-center border border-blue-100">
+                        <div class="text-lg font-bold text-blue-600 loading-skeleton" id="total-doctors">--</div>
+                        <div class="text-xs text-blue-700">Total Doctors</div>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-3 text-center border border-green-100">
+                        <div class="text-lg font-bold text-green-600 loading-skeleton" id="available-doctors">--</div>
+                        <div class="text-xs text-green-700">Available Now</div>
+                    </div>
+                    <div class="bg-cyan-50 rounded-lg p-3 text-center border border-cyan-100">
+                        <div class="text-lg font-bold text-cyan-600 loading-skeleton" id="vent-trained-doctors">--</div>
+                        <div class="text-xs text-cyan-700">Vent Trained</div>
+                    </div>
+                    <div class="bg-purple-50 rounded-lg p-3 text-center border border-purple-100">
+                        <div class="text-lg font-bold text-purple-600 loading-skeleton" id="on-call">--</div>
+                        <div class="text-xs text-purple-700">On Call</div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Staff Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full table-auto text-sm">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Staff Member</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Specialization</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Unit</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Clinical Skills</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staff-table-body" class="divide-y divide-gray-200">
+                            <tr><td colspan="5" class="px-3 py-4 text-center text-gray-500">Loading staff data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ANALYTICS TAB -->
+        <div id="analytics-tab" class="tab-content hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-6">Clinical Analytics & Reports</h2>
+                <div id="analytics-container" class="space-y-6">
+                    <div class="loading-skeleton h-64 rounded-lg"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Enhanced Clinical Bed Detail Modal -->
+    <div id="bed-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl p-4 max-w-md w-full max-h-90vh overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800" id="modal-bed-title">Clinical Bed Details</h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-600 transition duration-200">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div id="modal-bed-content" class="text-sm">
+                <div class="loading-skeleton h-32 rounded-lg"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ENHANCED FOOTER -->
+    <footer class="bg-white/80 backdrop-blur-md border-t border-gray-200/50 mt-12" id="main-footer">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex flex-col lg:flex-row justify-between items-center space-y-4 lg:space-y-0">
+                <div class="text-center lg:text-left">
+                    <p class="text-sm font-semibold text-gray-700">PneumoTrack Enterprise v4.0</p>
+                    <p class="text-xs text-gray-600">Advanced Clinical Command Center with AI-Powered Insights</p>
+                </div>
+                <div class="text-center lg:text-right">
+                    <p id="last-updated" class="text-xs text-gray-600">Last updated: --</p>
+                    <div class="flex items-center space-x-2 mt-1">
+                        <div class="status-pulse status-available"></div>
+                        <p id="system-status" class="text-xs font-medium text-green-600">All Systems Operational</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // SIMPLIFIED ENTERPRISE APPLICATION WITHOUT AUTHENTICATION
+        const PneumoTrackEnterprise = {
+            data: {
+                system: null,
+                units: [],
+                beds: [],
+                staff: [],
+                equipment: [],
+                alerts: [],
+                announcements: [],
+                clinicalLoad: {},
+                guardiaSchedules: [],
+                absenceRequests: [],
+                analytics: null,
+                staffAvailability: [],
+                enhancedBeds: null
+            },
+            config: {
+                refreshInterval: 30000,
+                apiBase: '/api',
+                realTimeEnabled: true
+            },
+            state: {
+                currentView: 'dashboard',
+                isLoading: false,
+                lastUpdate: null,
+                connectionStatus: 'online'
+            },
+            cache: new Map(),
+            intervals: []
+        };
+
+        // Simplified initialization - no authentication
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeEnterpriseApp();
+        });
+
+        async function initializeEnterpriseApp() {
+            try {
+                updateCurrentTime();
+                setInterval(updateCurrentTime, 1000);
+                
+                setupEnhancedEventListeners();
+                setupConnectionMonitoring();
+                
+                // Skip authentication - directly load data and show interface
+                showMainInterface();
+                await loadAllEnterpriseData();
+                startRealTimeUpdates();
+                showNotification('System initialized successfully', 'success');
+                
+            } catch (error) {
+                console.error('Application initialization failed:', error);
+                showNotification('System initialization failed', 'error');
+            }
+        }
+
+        function showMainInterface() {
+            document.getElementById('main-header').classList.remove('hidden');
+            document.getElementById('main-navigation').classList.remove('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            document.getElementById('main-footer').classList.remove('hidden');
+            
+            // Set default user info
+            updateUserInterface({username: 'developer', role: 'developer'});
+        }
+
+        function updateUserInterface(user) {
+            const userAvatar = document.getElementById('user-avatar');
+            const userDisplay = document.getElementById('user-display');
+            const usernameDisplay = document.getElementById('username-display');
+            
+            if (userAvatar) {
+                userAvatar.textContent = user.username.substring(0, 2).toUpperCase();
+            }
+            
+            if (userDisplay && usernameDisplay) {
+                usernameDisplay.textContent = user.username;
+                userDisplay.innerHTML = `User: <span class="text-blue-600">${user.username}</span> (${user.role})`;
+            }
+        }
+
+        function setupEnhancedEventListeners() {
+            // Navigation
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    switchTab(tab);
+                });
+            });
+
+            // Close modal
+            document.getElementById('close-modal').addEventListener('click', closeBedModal);
+
+            // Clinical load form with validation
+            document.getElementById('clinical-load-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await updateClinicalLoad();
+            });
+
+            // Input validation for clinical load form
+            setupFormValidation();
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    switch(e.key) {
+                        case '1': e.preventDefault(); switchTab('dashboard'); break;
+                        case '2': e.preventDefault(); switchTab('guardia'); break;
+                        case '3': e.preventDefault(); switchTab('clinical-load'); break;
+                        case '4': e.preventDefault(); switchTab('beds'); break;
+                        case '5': e.preventDefault(); switchTab('staff'); break;
+                        case '6': e.preventDefault(); switchTab('analytics'); break;
+                        case 'r': e.preventDefault(); loadAllData(true); break;
+                    }
+                }
+                
+                if (e.key === 'Escape') {
+                    closeBedModal();
+                }
+            });
+
+            // Online/offline detection
+            window.addEventListener('online', () => {
+                PneumoTrackEnterprise.state.connectionStatus = 'online';
+                updateConnectionStatus();
+                loadAllData(true);
+            });
+
+            window.addEventListener('offline', () => {
+                PneumoTrackEnterprise.state.connectionStatus = 'offline';
+                updateConnectionStatus();
+                showNotification('Connection lost - working offline', 'warning');
+            });
+        }
+
+        function setupFormValidation() {
+            const form = document.getElementById('clinical-load-form');
+            const inputs = form.querySelectorAll('input[type="number"]');
+            
+            inputs.forEach(input => {
+                input.addEventListener('blur', (e) => {
+                    validateClinicalInput(e.target);
+                });
+                
+                input.addEventListener('input', (e) => {
+                    clearValidationError(e.target);
+                });
+            });
+        }
+
+        function validateClinicalInput(input) {
+            const value = parseInt(input.value);
+            const max = parseInt(input.max) || 1000;
+            const min = parseInt(input.min) || 0;
+            const errorElement = document.getElementById(`${input.id}-error`);
+            
+            if (isNaN(value) || value < min || value > max) {
+                input.classList.add('border-red-500');
+                if (errorElement) {
+                    errorElement.textContent = `Must be between ${min} and ${max}`;
+                    errorElement.classList.remove('hidden');
+                }
+                return false;
+            }
+            
+            input.classList.remove('border-red-500');
+            if (errorElement) {
+                errorElement.classList.add('hidden');
+            }
+            return true;
+        }
+
+        function clearValidationError(input) {
+            input.classList.remove('border-red-500');
+            const errorElement = document.getElementById(`${input.id}-error`);
+            if (errorElement) {
+                errorElement.classList.add('hidden');
+            }
+        }
+
+        function switchTab(tabName) {
+            // Update navigation
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active', 'bg-gradient-to-r', 'from-blue-600', 'to-blue-700', 'text-white', 'nav-glow');
+                btn.classList.add('bg-white', 'text-gray-700', 'border', 'border-gray-200');
+            });
+            
+            const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('active', 'bg-gradient-to-r', 'from-blue-600', 'to-blue-700', 'text-white', 'nav-glow');
+                activeBtn.classList.remove('bg-white', 'text-gray-700', 'border', 'border-gray-200');
+            }
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.classList.add('hidden');
+            });
+            
+            const targetTab = document.getElementById(`${tabName}-tab`);
+            if (targetTab) {
+                targetTab.classList.add('active');
+                targetTab.classList.remove('hidden');
+            }
+            
+            // Load tab-specific data if needed
+            if (tabName === 'analytics' && !PneumoTrackEnterprise.data.analytics) {
+                loadAnalytics();
+            }
+            if (tabName === 'guardia') {
+                initializeGuardiaSystem();
+            }
+            if (tabName === 'beds') {
+                loadEnhancedBeds();
+            }
+            if (tabName === 'staff') {
+                loadStaffData();
+            }
+        }
+
+        // SIMPLIFIED API INTEGRATION WITHOUT AUTHENTICATION
+        async function apiCall(endpoint, options = {}) {
+            const { forceRefresh = false } = options;
+            const cacheKey = endpoint;
+            const now = Date.now();
+            
+            // Check cache (unless force refresh)
+            if (!forceRefresh && PneumoTrackEnterprise.cache.has(cacheKey)) {
+                const cached = PneumoTrackEnterprise.cache.get(cacheKey);
+                if (now - cached.timestamp < 60000) { // 1 minute cache
+                    return cached.data;
+                }
+            }
+            
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(`${PneumoTrackEnterprise.config.apiBase}${endpoint}`, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Update cache
+                PneumoTrackEnterprise.cache.set(cacheKey, {
+                    data: data,
+                    timestamp: now
+                });
+                
+                PneumoTrackEnterprise.state.errorCount = 0;
+                updateConnectionStatus();
+                
+                return data;
+                
+            } catch (error) {
+                console.error(`API call failed for ${endpoint}:`, error);
+                
+                // Return cached data as fallback
+                if (PneumoTrackEnterprise.cache.has(cacheKey)) {
+                    console.warn('Using cached data as fallback');
+                    return PneumoTrackEnterprise.cache.get(cacheKey).data;
+                }
+                
+                PneumoTrackEnterprise.state.errorCount++;
+                updateConnectionStatus();
+                
+                throw error;
+            }
+        }
+
+        async function loadAllEnterpriseData(forceRefresh = false) {
+            if (PneumoTrackEnterprise.state.isLoading) return;
+            
+            try {
+                PneumoTrackEnterprise.state.isLoading = true;
+                setLoadingState(true);
+                
+                const [
+                    system, units, beds, staff, equipment, 
+                    alerts, announcements, clinicalLoad,
+                    guardiaSchedules, absenceRequests, analytics,
+                    staffAvailability, dashboardSummary
+                ] = await Promise.allSettled([
+                    apiCall('/system/status', { forceRefresh }),
+                    apiCall('/units', { forceRefresh }),
+                    apiCall('/beds', { forceRefresh }),
+                    apiCall('/staff', { forceRefresh }),
+                    apiCall('/equipment', { forceRefresh }),
+                    apiCall('/alerts/intelligent', { forceRefresh }),
+                    apiCall('/announcements', { forceRefresh }),
+                    apiCall('/clinical/load', { forceRefresh }),
+                    apiCall('/guardia/schedule', { forceRefresh }),
+                    apiCall('/absence/requests', { forceRefresh }),
+                    apiCall('/analytics/dashboard', { forceRefresh }),
+                    apiCall('/staff/availability', { forceRefresh }),
+                    apiCall('/dashboard/summary', { forceRefresh })
+                ]);
+
+                // Handle successful responses
+                PneumoTrackEnterprise.data.system = system.status === 'fulfilled' ? system.value.data : null;
+                PneumoTrackEnterprise.data.units = units.status === 'fulfilled' ? units.value.data : [];
+                PneumoTrackEnterprise.data.beds = beds.status === 'fulfilled' ? beds.value.data : [];
+                PneumoTrackEnterprise.data.staff = staff.status === 'fulfilled' ? staff.value.data : [];
+                PneumoTrackEnterprise.data.equipment = equipment.status === 'fulfilled' ? equipment.value.data : [];
+                PneumoTrackEnterprise.data.alerts = alerts.status === 'fulfilled' ? alerts.value.data : { alerts: [] };
+                PneumoTrackEnterprise.data.announcements = announcements.status === 'fulfilled' ? announcements.value.data : [];
+                PneumoTrackEnterprise.data.clinicalLoad = clinicalLoad.status === 'fulfilled' ? clinicalLoad.value.data : {};
+                PneumoTrackEnterprise.data.guardiaSchedules = guardiaSchedules.status === 'fulfilled' ? guardiaSchedules.value.data : [];
+                PneumoTrackEnterprise.data.absenceRequests = absenceRequests.status === 'fulfilled' ? absenceRequests.value.data : [];
+                PneumoTrackEnterprise.data.analytics = analytics.status === 'fulfilled' ? analytics.value.data : null;
+                PneumoTrackEnterprise.data.staffAvailability = staffAvailability.status === 'fulfilled' ? staffAvailability.value.data : [];
+                PneumoTrackEnterprise.data.dashboardSummary = dashboardSummary.status === 'fulfilled' ? dashboardSummary.value.data : {};
+
+                // Handle rejected promises
+                const errors = [
+                    system, units, beds, staff, equipment, alerts, announcements,
+                    clinicalLoad, guardiaSchedules, absenceRequests, analytics,
+                    staffAvailability, dashboardSummary
+                ].filter(result => result.status === 'rejected');
+
+                if (errors.length > 0) {
+                    console.warn(`${errors.length} API calls failed partially`);
+                    if (errors.length > 5) {
+                        showNotification('Multiple data sources unavailable', 'warning');
+                    }
+                }
+
+                updateEnterpriseDashboard();
+                updateLastUpdated();
+                
+                if (forceRefresh) {
+                    showNotification('Data refreshed successfully', 'success');
+                }
+                
+            } catch (error) {
+                console.error('Enterprise data loading failed:', error);
+                showNotification('Failed to load data', 'error');
+            } finally {
+                PneumoTrackEnterprise.state.isLoading = false;
+                setLoadingState(false);
+            }
+        }
+
+        function setLoadingState(isLoading) {
+            const refreshButtons = document.querySelectorAll('button');
+            refreshButtons.forEach(btn => {
+                const btnText = btn.textContent || btn.innerText;
+                if (btnText.includes('Refresh') || btnText.includes('Sync')) {
+                    if (isLoading) {
+                        btn.classList.add('loading-state');
+                        btn.disabled = true;
+                    } else {
+                        btn.classList.remove('loading-state');
+                        btn.disabled = false;
+                    }
+                }
+            });
+        }
+
+        function updateConnectionStatus() {
+            const statusElement = document.getElementById('system-status-text');
+            const systemStatusElement = document.getElementById('system-status');
+            
+            if (!navigator.onLine) {
+                statusElement.textContent = 'Offline Mode';
+                statusElement.className = 'text-sm font-medium text-orange-700';
+                systemStatusElement.textContent = 'Offline Mode ⚠️';
+                systemStatusElement.className = 'text-xs font-medium text-orange-600';
+                return;
+            }
+            
+            if (PneumoTrackEnterprise.state.errorCount > 2) {
+                statusElement.textContent = 'Connection Issues';
+                statusElement.className = 'text-sm font-medium text-orange-700';
+                systemStatusElement.textContent = 'Connection Issues ⚠️';
+                systemStatusElement.className = 'text-xs font-medium text-orange-600';
+            } else {
+                statusElement.textContent = 'System Online';
+                statusElement.className = 'text-sm font-medium text-green-700';
+                systemStatusElement.textContent = 'All Systems Operational ✓';
+                systemStatusElement.className = 'text-xs font-medium text-green-600';
+            }
+        }
+
+        function setupConnectionMonitoring() {
+            // Check connection status every 10 seconds
+            setInterval(() => {
+                updateConnectionStatus();
+            }, 10000);
+        }
+
+        // ENHANCED NOTIFICATION SYSTEM
+        function showNotification(message, type = 'info', duration = 5000) {
+            const toastContainer = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <i class="fas ${
+                            type === 'error' ? 'fa-exclamation-circle' :
+                            type === 'warning' ? 'fa-exclamation-triangle' :
+                            type === 'success' ? 'fa-check-circle' :
+                            'fa-info-circle'
+                        } mr-2"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium">${message}</p>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 flex-shrink-0 text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            // Auto-remove after duration
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.style.animation = 'slideIn 0.3s ease-out reverse';
+                    setTimeout(() => {
+                        if (toast.parentElement) {
+                            toast.remove();
+                        }
+                    }, 300);
+                }
+            }, duration);
+        }
+
+        // ENHANCED BED MANAGEMENT FUNCTIONS
+        async function loadEnhancedBeds(forceRefresh = false) {
+            try {
+                const response = await fetch('/api/beds/enhanced');
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    PneumoTrackEnterprise.data.enhancedBeds = result.data;
+                    updateQuickBedStats(result.data.summary);
+                    updateRoomsOverview(result.data.rooms);
+                    updateRecentActivity(result.data.beds);
+                    
+                    if (forceRefresh) {
+                        showNotification('Bed data refreshed', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading enhanced beds:', error);
+                showNotification('Failed to load bed data', 'error');
+            }
+        }
+
+        function updateQuickBedStats(summary) {
+            document.getElementById('quick-empty-beds').textContent = summary.empty || '0';
+            document.getElementById('quick-occupied-beds').textContent = summary.occupied || '0';
+            document.getElementById('quick-vent-beds').textContent = '15'; // Assuming 15 vent beds
+        }
+
+        function updateRoomsOverview(rooms) {
+            const container = document.getElementById('rooms-overview');
+            if (!container) return;
+            
+            let html = '';
+            Object.keys(rooms).sort().forEach(roomCode => {
+                const roomBeds = rooms[roomCode];
+                const available = roomBeds.filter(bed => bed.status === 'empty').length;
+                const total = roomBeds.length;
+                const occupancyRate = Math.round((total - available) / total * 100);
+                
+                html += `
+                    <div class="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-md transition-shadow duration-200">
+                        <div class="flex justify-between items-start mb-2">
+                            <h4 class="font-semibold text-gray-800">${roomCode}</h4>
+                            <span class="text-xs px-2 py-1 rounded-full ${
+                                occupancyRate > 85 ? 'bg-red-100 text-red-800' :
+                                occupancyRate > 70 ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-green-100 text-green-800'
+                            }">
+                                ${available}/${total}
+                            </span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="h-2 rounded-full ${
+                                occupancyRate > 85 ? 'bg-red-500' :
+                                occupancyRate > 70 ? 'bg-yellow-500' :
+                                'bg-green-500'
+                            }" style="width: ${occupancyRate}%"></div>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1 text-center">
+                            ${occupancyRate}% occupied
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        function updateRecentActivity(beds) {
+            const container = document.getElementById('recent-bed-activity');
+            if (!container) return;
+            
+            // Get recently updated beds (last 5)
+            const recentBeds = beds
+                .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated))
+                .slice(0, 5);
+            
+            if (recentBeds.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center">No recent activity</p>';
+                return;
+            }
+            
+            container.innerHTML = recentBeds.map(bed => `
+                <div class="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded flex items-center justify-center text-white text-xs font-bold ${
+                            bed.status === 'empty' ? 'bg-green-500' :
+                            bed.status === 'occupied' ? 'bg-red-500' :
+                            bed.status === 'cleaning' ? 'bg-blue-500' :
+                            'bg-gray-500'
+                        }">
+                            ${bed.bed_number.replace('BH', '')}
+                        </div>
+                        <div>
+                            <div class="text-sm font-medium">${bed.bed_number}</div>
+                            <div class="text-xs text-gray-500">${bed.room_code}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-gray-600 capitalize">${bed.status}</div>
+                        <div class="text-xs text-gray-400">${formatTimeAgo(bed.last_updated)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function formatTimeAgo(timestamp) {
+            const now = new Date();
+            const time = new Date(timestamp);
+            const diffInMinutes = Math.floor((now - time) / (1000 * 60));
+            
+            if (diffInMinutes < 1) return 'Just now';
+            if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+            if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+            return `${Math.floor(diffInMinutes / 1440)}d ago`;
+        }
+
+        // SPECIFIC DATA LOADING FUNCTIONS
+        async function loadGuardiaData(forceRefresh = false) {
+            try {
+                const [guardiaSchedules, absenceRequests, staffAvailability] = await Promise.all([
+                    apiCall('/guardia/schedule', { forceRefresh }),
+                    apiCall('/absence/requests', { forceRefresh }),
+                    apiCall('/staff/availability', { forceRefresh })
+                ]);
+
+                PneumoTrackEnterprise.data.guardiaSchedules = guardiaSchedules.data;
+                PneumoTrackEnterprise.data.absenceRequests = absenceRequests.data;
+                PneumoTrackEnterprise.data.staffAvailability = staffAvailability.data;
+
+                updateGuardiaCalendar();
+                updateGuardiaScheduleTable();
+                updateAbsenceRequests();
+                updateStaffAvailability();
+
+                if (forceRefresh) {
+                    showNotification('Guardia data refreshed', 'success');
+                }
+            } catch (error) {
+                console.error('Failed to load guardia data:', error);
+                showNotification('Failed to load guardia data', 'error');
+            }
+        }
+
+        async function loadStaffData(forceRefresh = false) {
+            try {
+                const staffData = await apiCall('/staff', { forceRefresh });
+                PneumoTrackEnterprise.data.staff = staffData.data;
+                updateStaffDisplay();
+                
+                if (forceRefresh) {
+                    showNotification('Staff data refreshed', 'success');
+                }
+            } catch (error) {
+                console.error('Failed to load staff data:', error);
+                showNotification('Failed to load staff data', 'error');
+            }
+        }
+
+        async function loadAlerts() {
+            try {
+                const alertsData = await apiCall('/alerts/intelligent', { forceRefresh: true });
+                PneumoTrackEnterprise.data.alerts = alertsData.data;
+                updateAIAlerts();
+                showNotification('Alerts refreshed', 'success');
+            } catch (error) {
+                console.error('Failed to load alerts:', error);
+                showNotification('Failed to load alerts', 'error');
+            }
+        }
+
+        async function loadAnalytics() {
+            try {
+                const analyticsData = await apiCall('/analytics/dashboard');
+                PneumoTrackEnterprise.data.analytics = analyticsData.data;
+                updateAnalyticsDisplay();
+            } catch (error) {
+                console.error('Failed to load analytics:', error);
+                showNotification('Failed to load analytics', 'error');
+            }
+        }
+
+        // ENHANCED DASHBOARD UPDATES
+        function updateEnterpriseDashboard() {
+            updateKPICards();
+            updateUnitsCommandView();
+            updateAIAlerts();
+            updateTodaysGuardia();
+            updateAnnouncementsDisplay();
+            updateEquipmentStatus();
+            updateClinicalLoadSummary();
+        }
+
+        function updateKPICards() {
+            const system = PneumoTrackEnterprise.data.system;
+            const clinicalLoad = PneumoTrackEnterprise.data.clinicalLoad;
+            const dashboardSummary = PneumoTrackEnterprise.data.dashboardSummary;
+            
+            // Remove loading skeletons
+            document.querySelectorAll('.loading-skeleton').forEach(el => {
+                el.classList.remove('loading-skeleton');
+            });
+            
+            // Handle clinical load data structure from backend
+            if (clinicalLoad && clinicalLoad.total_patients !== undefined) {
+                document.getElementById('total-patients').textContent = clinicalLoad.total_patients || '0';
+                document.getElementById('vent-patients').textContent = clinicalLoad.vent_patients || '0';
+            } else if (dashboardSummary && dashboardSummary.clinical_load) {
+                // Alternative data source
+                const load = dashboardSummary.clinical_load;
+                document.getElementById('total-patients').textContent = load.total_patients || '0';
+                document.getElementById('vent-patients').textContent = load.vent_patients || '0';
+            }
+            
+            // Handle system data structure
+            if (system && system.overview) {
+                document.getElementById('vent-beds').textContent = system.overview.available_vent_beds || '0';
+                document.getElementById('on-call-staff').textContent = system.overview.on_call_now || '0';
+                document.getElementById('absent-staff').textContent = system.overview.absent_staff || '0';
+                document.getElementById('equipment-available').textContent = system.overview.available_equipment || '0';
+            } else if (system) {
+                // Direct system properties
+                document.getElementById('vent-beds').textContent = system.available_vent_beds || '0';
+                document.getElementById('on-call-staff').textContent = system.on_call_now || '0';
+                document.getElementById('absent-staff').textContent = system.absent_staff || '0';
+                document.getElementById('equipment-available').textContent = system.available_equipment || '0';
+            }
+        }
+
+        function updateUnitsCommandView() {
+            const container = document.getElementById('units-command-view');
+            if (!container || !PneumoTrackEnterprise.data.units) return;
+            
+            container.innerHTML = PneumoTrackEnterprise.data.units.map(unit => {
+                const occupancyRate = unit.beds.occupancy_rate;
+                const progressColor = occupancyRate > 85 ? 'bg-red-500' : 
+                                   occupancyRate > 70 ? 'bg-yellow-500' : 'bg-green-500';
+                const statusColor = occupancyRate > 85 ? 'text-red-600' : 
+                                  occupancyRate > 70 ? 'text-yellow-600' : 'text-green-600';
+
+                return `
+                    <div class="bg-gray-50 rounded-lg p-4 border-l-4 hover:shadow-sm transition-shadow duration-200" style="border-left-color: ${unit.color}">
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="flex-1 min-w-0">
+                                <h3 class="font-semibold text-gray-800 text-sm flex items-center truncate">
+                                    <i class="${unit.icon} mr-2" style="color: ${unit.color}"></i>
+                                    ${unit.name}
+                                </h3>
+                                <p class="text-xs text-gray-600 truncate">${unit.specialty}</p>
+                            </div>
+                            <span class="px-2 py-1 text-xs rounded-full whitespace-nowrap ${
+                                occupancyRate > 85 ? 'bg-red-100 text-red-800' : 
+                                occupancyRate > 70 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
+                            }">
+                                ${unit.beds.occupied}/${unit.beds.total} beds
+                            </span>
+                        </div>
+                        
+                        <div class="mb-2">
+                            <div class="flex justify-between text-xs text-gray-600 mb-1">
+                                <span>Occupancy Rate</span>
+                                <span class="${statusColor} font-semibold">${occupancyRate}%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="h-2 rounded-full ${progressColor}" style="width: ${Math.min(occupancyRate, 100)}%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-between text-xs text-gray-500">
+                            <span class="flex items-center">
+                                <i class="fas fa-wind mr-1 text-cyan-600"></i>
+                                ${unit.beds.vent_capable} vent beds
+                            </span>
+                            <span>${unit.beds.available} available</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateAIAlerts() {
+            const container = document.getElementById('ai-alerts-container');
+            if (!container) return;
+
+            const alerts = PneumoTrackEnterprise.data.alerts?.alerts || [];
+            
+            if (alerts.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fas fa-check-circle text-xl text-green-400 mb-2"></i>
+                        <p class="text-sm">No active alerts</p>
+                        <p class="text-xs">All systems operational</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = alerts.map(alert => {
+                const alertClass = alert.severity === 'critical' ? 'bg-red-50 border-red-200' :
+                                 alert.severity === 'high' ? 'bg-orange-50 border-orange-200' : 
+                                 'bg-blue-50 border-blue-200';
+
+                return `
+                    <div class="${alertClass} rounded-lg p-3 border animate-pulse">
+                        <div class="flex justify-between items-start mb-1">
+                            <h4 class="font-semibold text-gray-800 text-sm">${alert.title}</h4>
+                            <span class="text-xs px-1.5 py-0.5 rounded-full ${
+                                alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                                alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
+                                'bg-blue-100 text-blue-800'
+                            }">
+                                ${alert.severity}
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-600 mb-1">${alert.message}</p>
+                        <div class="text-xs text-gray-500">
+                            ${new Date(alert.timestamp).toLocaleTimeString()}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateTodaysGuardia() {
+            const container = document.getElementById('todays-guardia');
+            if (!container) return;
+
+            const today = new Date().toISOString().split('T')[0];
+            const todaysGuardia = PneumoTrackEnterprise.data.guardiaSchedules.filter(
+                schedule => schedule.schedule_date === today
+            );
+
+            if (todaysGuardia.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">No guardia scheduled for today</p>';
+                return;
+            }
+
+            container.innerHTML = todaysGuardia.map(schedule => `
+                <div class="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-200">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                            ${getInitials(schedule.staff_name)}
+                        </div>
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">${schedule.staff_name.split(' ')[0]}</div>
+                            <div class="text-xs text-amber-700">${schedule.shift_type} shift</div>
+                        </div>
+                    </div>
+                    <span class="text-xs text-gray-500">${schedule.unit_name}</span>
+                </div>
+            `).join('');
+        }
+
+        // GUARDIA SYSTEM FUNCTIONS
+        function initializeGuardiaSystem() {
+            updateGuardiaCalendar();
+            updateGuardiaScheduleTable();
+            updateAbsenceRequests();
+            updateStaffAvailability();
+        }
+
+        function updateGuardiaCalendar() {
+            const container = document.getElementById('guardia-calendar');
+            if (!container) return;
+
+            const today = new Date();
+            const guardiaData = PneumoTrackEnterprise.data.guardiaSchedules;
+            
+            container.innerHTML = `
+                <div class="text-center mb-4">
+                    <h4 class="text-lg font-semibold text-gray-800">Guardia Schedule Calendar</h4>
+                    <p class="text-sm text-gray-600">${today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+                </div>
+                <div class="grid grid-cols-7 gap-2">
+                    ${generateCalendarDays().map(day => `
+                        <div class="p-2 border rounded-lg text-center ${isToday(day) ? 'bg-blue-50 border-blue-200' : ''}">
+                            <div class="text-sm font-medium">${day.getDate()}</div>
+                            ${renderGuardiaAssignments(day)}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function updateGuardiaScheduleTable() {
+            const container = document.getElementById('guardia-schedule-table');
+            if (!container) return;
+
+            const schedules = PneumoTrackEnterprise.data.guardiaSchedules;
+            
+            if (schedules.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-4">No guardia schedules found</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="overflow-x-auto">
+                    <table class="w-full table-auto text-sm">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Date</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Staff</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Shift</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Unit</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${schedules.map(schedule => `
+                                <tr class="hover:bg-gray-50 transition duration-150">
+                                    <td class="px-4 py-3 text-sm text-gray-900">${new Date(schedule.schedule_date).toLocaleDateString()}</td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center">
+                                            <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-white text-xs font-bold mr-3">
+                                                ${getInitials(schedule.staff_name)}
+                                            </div>
+                                            <div>
+                                                <div class="text-sm font-medium text-gray-900">${schedule.staff_name}</div>
+                                                <div class="text-xs text-gray-500">${schedule.specialization}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            schedule.shift_type === 'night' ? 'bg-purple-100 text-purple-800' :
+                                            schedule.shift_type === 'evening' ? 'bg-orange-100 text-orange-800' :
+                                            'bg-blue-100 text-blue-800'
+                                        }">
+                                            ${schedule.shift_type}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-900">${schedule.unit_name}</td>
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            schedule.status === 'scheduled' ? 'bg-green-100 text-green-800' :
+                                            schedule.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                            'bg-gray-100 text-gray-800'
+                                        }">
+                                            ${schedule.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function updateAbsenceRequests() {
+            const container = document.getElementById('absence-requests-list');
+            if (!container) return;
+
+            const absences = PneumoTrackEnterprise.data.absenceRequests;
+            
+            if (absences.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">No absence requests pending</p>';
+                return;
+            }
+
+            container.innerHTML = absences.map(absence => `
+                <div class="border border-gray-200 rounded-lg p-3 mb-2">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h4 class="font-medium text-gray-900">${absence.staff_name}</h4>
+                            <p class="text-xs text-gray-500">${absence.specialization}</p>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            absence.status === 'approved' ? 'bg-green-100 text-green-800' :
+                            absence.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                        }">
+                            ${absence.status}
+                        </span>
+                    </div>
+                    <div class="text-xs text-gray-600">
+                        <p>${absence.request_type} • ${new Date(absence.start_date).toLocaleDateString()} - ${new Date(absence.end_date).toLocaleDateString()}</p>
+                        <p class="mt-1">${absence.reason}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateStaffAvailability() {
+            const container = document.getElementById('staff-availability-list');
+            if (!container) return;
+
+            const staff = PneumoTrackEnterprise.data.staffAvailability || [];
+            const available = staff.filter(s => s.availability_status === 'available').length;
+            const absent = staff.filter(s => s.availability_status === 'absent').length;
+            const onCall = staff.filter(s => s.is_on_call).length;
+
+            container.innerHTML = `
+                <div class="grid grid-cols-3 gap-2 text-center mb-4">
+                    <div class="bg-green-50 rounded p-2">
+                        <div class="text-lg font-bold text-green-600">${available}</div>
+                        <div class="text-xs text-green-700">Available</div>
+                    </div>
+                    <div class="bg-orange-50 rounded p-2">
+                        <div class="text-lg font-bold text-orange-600">${absent}</div>
+                        <div class="text-xs text-orange-700">Absent</div>
+                    </div>
+                    <div class="bg-purple-50 rounded p-2">
+                        <div class="text-lg font-bold text-purple-600">${onCall}</div>
+                        <div class="text-xs text-purple-700">On Call</div>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 text-center">Staff availability overview</p>
+            `;
+        }
+
+        // CLINICAL LOAD FUNCTIONS
+        async function updateClinicalLoad() {
+            const form = document.getElementById('clinical-load-form');
+            const submitBtn = document.getElementById('submit-clinical-load');
+            
+            // Validate all inputs
+            const inputs = form.querySelectorAll('input[type="number"]');
+            let isValid = true;
+            
+            inputs.forEach(input => {
+                if (!validateClinicalInput(input)) {
+                    isValid = false;
+                }
+            });
+            
+            if (!isValid) {
+                showNotification('Please fix validation errors', 'error');
+                return;
+            }
+            
+            const formData = {
+                total_patients: parseInt(document.getElementById('total-patients-input').value),
+                new_admissions: parseInt(document.getElementById('new-admissions-input').value),
+                expected_discharges: parseInt(document.getElementById('expected-discharges-input').value),
+                vent_patients: parseInt(document.getElementById('vent-patients-input').value),
+                high_flow_o2_patients: parseInt(document.getElementById('high-flow-patients-input').value),
+                procedure_scheduled: parseInt(document.getElementById('procedures-input').value),
+                clinical_notes: document.getElementById('clinical-notes').value
+            };
+            
+            try {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Updating...';
+                
+                const response = await fetch('/api/clinical/load', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showNotification('Clinical load updated successfully!', 'success');
+                    form.reset();
+                    await loadAllEnterpriseData(true);
+                } else {
+                    throw new Error(result.message || 'Update failed');
+                }
+                
+            } catch (error) {
+                console.error('Error updating clinical load:', error);
+                showNotification('Error updating clinical load: ' + error.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Update Clinical Load';
+            }
+        }
+
+        function updateClinicalLoadSummary() {
+            const container = document.getElementById('current-load-summary');
+            if (!container || !PneumoTrackEnterprise.data.clinicalLoad) return;
+            
+            const load = PneumoTrackEnterprise.data.clinicalLoad;
+            container.innerHTML = `
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-gray-800">${load.total_patients || 0}</div>
+                    <div class="text-xs text-gray-600">Total Patients</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-blue-600">${load.new_admissions || 0}</div>
+                    <div class="text-xs text-gray-600">New Admissions</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-red-600">${load.vent_patients || 0}</div>
+                    <div class="text-xs text-gray-600">Vent Patients</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-green-600">${load.expected_discharges || 0}</div>
+                    <div class="text-xs text-gray-600">Expected Discharges</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-cyan-600">${load.high_flow_o2_patients || 0}</div>
+                    <div class="text-xs text-gray-600">High Flow O2</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-purple-600">${load.procedure_scheduled || 0}</div>
+                    <div class="text-xs text-gray-600">Procedures</div>
+                </div>
+            `;
+
+            // Update capacity planning
+            const capacityContainer = document.getElementById('capacity-planning');
+            if (capacityContainer && PneumoTrackEnterprise.data.system) {
+                const system = PneumoTrackEnterprise.data.system;
+                capacityContainer.innerHTML = `
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Bed Capacity</h4>
+                        <div class="space-y-1 text-xs">
+                            <div class="flex justify-between">
+                                <span>Total Beds:</span>
+                                <span class="font-semibold">${system.total_beds}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Available:</span>
+                                <span class="font-semibold text-green-600">${system.total_beds - system.occupied_beds}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Vent Capable Available:</span>
+                                <span class="font-semibold text-cyan-600">${system.available_vent_beds}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Resource Status</h4>
+                        <div class="space-y-1 text-xs">
+                            <div class="flex justify-between">
+                                <span>Available Equipment:</span>
+                                <span class="font-semibold">${system.available_equipment}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Clinical Staff:</span>
+                                <span class="font-semibold">${system.total_staff}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // STAFF MANAGEMENT FUNCTIONS
+        function updateStaffDisplay() {
+            const tableBody = document.getElementById('staff-table-body');
+            const totalDoctors = document.getElementById('total-doctors');
+            const availableDoctors = document.getElementById('available-doctors');
+            const ventTrainedDoctors = document.getElementById('vent-trained-doctors');
+            const onCall = document.getElementById('on-call');
+
+            if (!tableBody) return;
+
+            const staff = PneumoTrackEnterprise.data.staff || [];
+            
+            if (staff.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500 text-sm">No staff data available</td></tr>';
+                return;
+            }
+
+            if (totalDoctors) totalDoctors.textContent = staff.length;
+            if (availableDoctors) availableDoctors.textContent = staff.filter(s => s.current_status === 'available').length;
+            if (ventTrainedDoctors) ventTrainedDoctors.textContent = staff.filter(s => s.clinical_competencies.vent_trained).length;
+            if (onCall) onCall.textContent = staff.filter(s => s.is_on_call).length;
+
+            tableBody.innerHTML = '';
+
+            staff.forEach(staffMember => {
+                const statusDot = `
+                    <span class="status-dot ${
+                        staffMember.current_status === 'available' ? 'status-available' :
+                        staffMember.current_status === 'in_surgery' ? 'status-in-surgery' :
+                        staffMember.current_status === 'on_break' ? 'status-on-break' :
+                        'status-occupied'
+                    }"></span>
+                `;
+
+                const clinicalSkills = [];
+                if (staffMember.clinical_competencies.vent_trained) clinicalSkills.push('<span class="bg-red-100 text-red-800 text-xs px-1 py-0.5 rounded">Vent</span>');
+                if (staffMember.clinical_competencies.procedure_trained) clinicalSkills.push('<span class="bg-purple-100 text-purple-800 text-xs px-1 py-0.5 rounded">Procedure</span>');
+                if (staffMember.competencies && staffMember.competencies.length > 0) {
+                    staffMember.competencies.slice(0, 1).forEach(comp => {
+                        clinicalSkills.push(`<span class="bg-blue-100 text-blue-800 text-xs px-1 py-0.5 rounded">${comp}</span>`);
+                    });
+                }
+
+                const row = `
+                    <tr class="hover:bg-gray-50 transition duration-150">
+                        <td class="px-3 py-2">
+                            <div class="flex items-center">
+                                ${staffMember.is_chief ? '<i class="fas fa-crown text-yellow-500 mr-1 text-xs"></i>' : ''}
+                                <div>
+                                    <div class="font-medium text-gray-900 text-sm">${staffMember.name}</div>
+                                    <div class="text-xs text-gray-500">${staffMember.staff_id}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 py-2">
+                            <div class="text-sm text-gray-900">${staffMember.specialization}</div>
+                            ${staffMember.sub_specialization ? 
+                                `<div class="text-xs text-gray-500">${staffMember.sub_specialization}</div>` : ''
+                            }
+                        </td>
+                        <td class="px-3 py-2 text-sm text-gray-900">${staffMember.primary_unit || 'N/A'}</td>
+                        <td class="px-3 py-2">
+                            <div class="flex items-center">
+                                ${statusDot}
+                                <span class="text-sm text-gray-900 capitalize">${staffMember.current_status.replace('_', ' ')}</span>
+                                ${staffMember.is_on_call ? '<i class="fas fa-phone ml-1 text-green-500 text-xs"></i>' : ''}
+                            </div>
+                        </td>
+                        <td class="px-3 py-2">
+                            <div class="flex flex-wrap gap-1">
+                                ${clinicalSkills.join('')}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+
+        // EQUIPMENT FUNCTIONS
+        function updateEquipmentStatus() {
+            const container = document.getElementById('equipment-status');
+            if (!container || !PneumoTrackEnterprise.data.equipment) return;
+            
+            const equipment = PneumoTrackEnterprise.data.equipment;
+            const available = equipment.filter(e => e.status === 'available').length;
+            const inUse = equipment.filter(e => e.status === 'in_use').length;
+            const maintenance = equipment.filter(e => e.status === 'maintenance').length;
+            
+            container.innerHTML = `
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-green-50 rounded p-2">
+                        <div class="text-lg font-bold text-green-600">${available}</div>
+                        <div class="text-xs text-green-700">Available</div>
+                    </div>
+                    <div class="bg-blue-50 rounded p-2">
+                        <div class="text-lg font-bold text-blue-600">${inUse}</div>
+                        <div class="text-xs text-blue-700">In Use</div>
+                    </div>
+                    <div class="bg-orange-50 rounded p-2">
+                        <div class="text-lg font-bold text-orange-600">${maintenance}</div>
+                        <div class="text-xs text-orange-700">Maintenance</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ANNOUNCEMENTS FUNCTIONS
+        function updateAnnouncementsDisplay() {
+            const container = document.getElementById('announcements-container');
+            if (!container) return;
+            
+            const announcements = PneumoTrackEnterprise.data.announcements || [];
+            
+            if (announcements.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fas fa-bullhorn text-xl text-gray-400 mb-2"></i>
+                        <p class="text-sm">No announcements</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = '';
+
+            announcements.forEach(announcement => {
+                const priorityIcon = announcement.priority === 'high' ? 'fa-exclamation-circle text-red-500' :
+                                   announcement.priority === 'urgent' ? 'fa-exclamation-triangle text-orange-500' :
+                                   'fa-info-circle text-blue-500';
+
+                const announcementElement = `
+                    <div class="bg-gray-50 rounded-lg p-3 border-l-4 ${
+                        announcement.priority === 'high' ? 'border-red-400' : 
+                        announcement.priority === 'urgent' ? 'border-orange-400' : 'border-blue-400'
+                    }">
+                        <div class="flex justify-between items-start mb-1">
+                            <h4 class="font-semibold text-gray-800 text-sm flex items-center">
+                                <i class="fas ${priorityIcon} mr-1"></i>
+                                ${announcement.title}
+                            </h4>
+                            <span class="text-xs text-gray-500">
+                                ${new Date(announcement.posted_at).toLocaleDateString()}
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-600 mb-1">${announcement.message}</p>
+                        <div class="flex justify-between items-center text-xs text-gray-500">
+                            <span>By: ${announcement.posted_by}</span>
+                            ${announcement.requires_acknowledgment ? 
+                                '<span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-xs">Requires Acknowledgment</span>' : 
+                                ''
+                            }
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += announcementElement;
+            });
+        }
+
+        // ANALYTICS FUNCTIONS
+        function updateAnalyticsDisplay() {
+            const container = document.getElementById('analytics-container');
+            if (!container || !PneumoTrackEnterprise.data.analytics) return;
+            
+            const analytics = PneumoTrackEnterprise.data.analytics;
+            
+            // Check if analytics data exists and has the expected structure
+            const bedMetrics = analytics.bed_metrics || {};
+            const staffMetrics = analytics.staff_metrics || {};
+            const equipmentMetrics = analytics.equipment_metrics || {};
+            
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="font-semibold text-gray-800 mb-3">Bed Distribution</h3>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span>Total Beds:</span>
+                                <span class="font-semibold">${bedMetrics.total_beds || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span>Occupied:</span>
+                                <span class="font-semibold text-red-600">${bedMetrics.occupied_beds || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span>Available:</span>
+                                <span class="font-semibold text-green-600">${bedMetrics.available_beds || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span>Vent Capable:</span>
+                                <span class="font-semibold text-cyan-600">${bedMetrics.vent_capable_beds || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="font-semibold text-gray-800 mb-3">Clinical Resources</h3>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span>Total Staff:</span>
+                                <span class="font-semibold">${staffMetrics.total_staff || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span>Vent Trained:</span>
+                                <span class="font-semibold text-cyan-600">${staffMetrics.vent_trained_staff || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span>Available Equipment:</span>
+                                <span class="font-semibold text-green-600">${equipmentMetrics.available_equipment || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h3 class="font-semibold text-gray-800 mb-2">System Performance</h3>
+                    <div class="text-sm text-gray-600">
+                        <p>Last Updated: ${new Date().toLocaleString()}</p>
+                        <p>Data Refresh: Every 30 seconds</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // UTILITY FUNCTIONS
+        function getInitials(name) {
+            return name.split(' ').map(n => n[0]).join('').toUpperCase();
+        }
+
+        function generateCalendarDays() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = today.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            
+            const days = [];
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                days.push(new Date(year, month, day));
+            }
+            return days;
+        }
+
+        function isToday(date) {
+            const today = new Date();
+            return date.toDateString() === today.toDateString();
+        }
+
+        function renderGuardiaAssignments(date) {
+            const assignments = PneumoTrackEnterprise.data.guardiaSchedules.filter(
+                schedule => new Date(schedule.schedule_date).toDateString() === date.toDateString()
+            );
+            
+            if (assignments.length === 0) return '<div class="text-xs text-gray-400 mt-1">No guardia</div>';
+            
+            return assignments.map(assignment => `
+                <div class="text-xs bg-amber-100 text-amber-800 rounded px-1 py-0.5 mt-1 truncate">
+                    ${assignment.staff_name.split(' ')[0]}
+                </div>
+            `).join('');
+        }
+
+        function updateCurrentTime() {
+            const now = new Date();
+            const timeElement = document.getElementById('current-time');
+            if (timeElement) {
+                timeElement.textContent = now.toLocaleString();
+            }
+        }
+
+        function updateLastUpdated() {
+            const element = document.getElementById('last-updated');
+            if (element) {
+                PneumoTrackEnterprise.state.lastUpdate = new Date();
+                element.textContent = `Last updated: ${PneumoTrackEnterprise.state.lastUpdate.toLocaleString()}`;
+            }
+        }
+
+        function startRealTimeUpdates() {
+            // Clear existing intervals
+            PneumoTrackEnterprise.intervals.forEach(interval => clearInterval(interval));
+            PneumoTrackEnterprise.intervals = [];
+
+            // Main data refresh
+            const mainInterval = setInterval(() => {
+                if (navigator.onLine && !PneumoTrackEnterprise.state.isLoading) {
+                    loadAllEnterpriseData();
+                }
+            }, PneumoTrackEnterprise.config.refreshInterval);
+
+            PneumoTrackEnterprise.intervals.push(mainInterval);
+
+            // Critical data more frequently
+            const criticalInterval = setInterval(() => {
+                if (navigator.onLine && !PneumoTrackEnterprise.state.isLoading) {
+                    loadAlerts();
+                }
+            }, 15000); // 15 seconds for alerts
+
+            PneumoTrackEnterprise.intervals.push(criticalInterval);
+        }
+
+        function closeBedModal() {
+            document.getElementById('bed-modal').classList.add('hidden');
+        }
+
+        // Make functions globally available
+        window.PneumoTrackEnterprise = PneumoTrackEnterprise;
+        window.showNotification = showNotification;
+        window.loadAllData = loadAllEnterpriseData;
+        window.loadBedsData = loadEnhancedBeds;
+        window.loadStaffData = loadStaffData;
+        window.loadGuardiaData = loadGuardiaData;
+        window.loadAlerts = loadAlerts;
+        window.switchTab = switchTab;
+        window.showBedDetails = showBedDetails;
+        window.closeBedModal = closeBedModal;
+        window.updateClinicalLoad = updateClinicalLoad;
+        window.loadEnhancedBeds = loadEnhancedBeds;
+    </script>
+</body>
+</html>
