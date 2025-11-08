@@ -32,6 +32,12 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
+import psycopg
+from psycopg.rows import dict_row
+
+# Connection code  
+conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
 
 
 # =============================================================================
