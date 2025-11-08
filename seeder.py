@@ -3,11 +3,11 @@ import psycopg2
 from urllib.parse import urlparse
 
 def seed_data():
-    print("🔄 Seeding sample data...")
+    print("🔄 Seeding data...")
     
     database_url = os.environ.get('DATABASE_URL')
     if not database_url:
-        print("❌ DATABASE_URL not found")
+        print("❌ DATABASE_URL not found - cannot seed data")
         return False
     
     try:
@@ -28,55 +28,22 @@ def seed_data():
             print("✅ Data already exists")
             return True
         
-        # Insert sample staff
-        staff = [
-            ('Maria', 'Gonzalez', 'Doctor', 'Emergency Medicine'),
-            ('Carlos', 'Rodriguez', 'Nurse', 'Emergency Medicine'),
-            ('Ana', 'Martinez', 'Doctor', 'Cardiology')
-        ]
+        # Minimal sample data
+        cursor.execute("INSERT INTO medical_staff (first_name, last_name, role) VALUES ('Dr. Maria', 'Gonzalez', 'Doctor')")
+        cursor.execute("INSERT INTO medical_staff (first_name, last_name, role) VALUES ('Nurse Carlos', 'Rodriguez', 'Nurse')")
         
-        for s in staff:
-            cursor.execute(
-                "INSERT INTO medical_staff (first_name, last_name, role, specialty) VALUES (%s, %s, %s, %s)",
-                s
-            )
-        
-        # Insert sample beds
-        beds = [
-            ('ER-101', 'A', 'empty'),
-            ('ER-102', 'B', 'occupied'),
-            ('ICU-201', '1', 'empty')
-        ]
-        
-        for b in beds:
-            cursor.execute(
-                "INSERT INTO enhanced_beds (room_code, bed_number, status) VALUES (%s, %s, %s)",
-                b
-            )
-        
-        # Insert sample units
-        units = [
-            ('Emergency Room', 'ER'),
-            ('Intensive Care Unit', 'ICU'),
-            ('Cardiology', 'CARD')
-        ]
-        
-        for u in units:
-            cursor.execute(
-                "INSERT INTO department_units (name, code) VALUES (%s, %s)",
-                u
-            )
+        cursor.execute("INSERT INTO enhanced_beds (room_code, bed_number) VALUES ('ER-101', 'A')")
+        cursor.execute("INSERT INTO enhanced_beds (room_code, bed_number) VALUES ('ER-102', 'B')")
         
         conn.commit()
-        print("✅ Sample data seeded successfully")
+        conn.close()
+        print("✅ Data seeded successfully")
         return True
         
     except Exception as e:
-        print(f"❌ Error seeding data: {e}")
+        print(f"❌ Seeding failed: {e}")
         return False
-    finally:
-        if 'conn' in locals():
-            conn.close()
 
-if __name__ == '__main__':
-    seed_data()
+# Remove the auto-execution during import
+# if __name__ == '__main__':
+#     seed_data()
