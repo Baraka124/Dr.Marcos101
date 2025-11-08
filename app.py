@@ -1,6 +1,6 @@
 """
 COMPLETE HOSPITAL MANAGEMENT SYSTEM
-With proper Railway PostgreSQL connection
+With manual database initialization
 """
 
 import os
@@ -16,22 +16,9 @@ app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key')
 
 def get_db_connection():
-    """Get PostgreSQL database connection - tries multiple methods"""
+    """Get PostgreSQL database connection"""
     try:
-        # Method 1: Use Railway's individual PG environment variables
-        if all(os.environ.get(var) for var in ['PGHOST', 'PGUSER', 'PGPASSWORD', 'PGDATABASE']):
-            conn = psycopg2.connect(
-                host=os.environ.get('PGHOST'),
-                port=os.environ.get('PGPORT', 5432),
-                database=os.environ.get('PGDATABASE'),
-                user=os.environ.get('PGUSER'),
-                password=os.environ.get('PGPASSWORD'),
-                sslmode='require',
-                cursor_factory=RealDictCursor
-            )
-            return conn
-        
-        # Method 2: Use DATABASE_URL environment variable
+        # Try DATABASE_URL first
         database_url = os.environ.get('DATABASE_URL')
         if database_url:
             result = urlparse(database_url)
@@ -45,8 +32,8 @@ def get_db_connection():
                 cursor_factory=RealDictCursor
             )
             return conn
-            
-        # Method 3: Use the specific URL we know
+        
+        # Fallback to direct connection
         conn = psycopg2.connect(
             database='railway',
             user='postgres',
@@ -62,26 +49,60 @@ def get_db_connection():
         raise Exception(f"Database connection failed: {e}")
 
 def initialize_database():
-    """Database initialization - called on first API request"""
+    """Database initialization - creates tables and seeds data"""
     print("🔄 Initializing database...")
     try:
-        # Try to create tables
-        from schema import create_tables
-        if create_tables():
-            print("✅ Tables created successfully")
-        else:
-            print("❌ Table creation failed")
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        # Try to seed data
-        from seeder import seed_data  
-        if seed_data():
-            print("✅ Data seeded successfully")
-        else:
-            print("❌ Data seeding failed")
+        # Create medical_staff table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS medical_staff (
+                id SERIAL PRIMARY KEY,
+                first_name VARCHAR(50),
+                last_name VARCHAR(50),
+                role VARCHAR(50),
+                is_active BOOLEAN DEFAULT true
+            )
+        """)
+        print("✅ medical_staff table created")
+        
+        # Create enhanced_beds table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS enhanced_beds (
+                id SERIAL PRIMARY KEY,
+                room_code VARCHAR(20),
+                bed_number VARCHAR(10),
+                status VARCHAR(20) DEFAULT 'empty'
+            )
+        """)
+        print("✅ enhanced_beds table created")
+        
+        # Check if data exists
+        cursor.execute("SELECT COUNT(*) as count FROM medical_staff")
+        staff_count = cursor.fetchone()['count']
+        
+        if staff_count == 0:
+            # Seed sample data
+            cursor.execute("INSERT INTO medical_staff (first_name, last_name, role) VALUES ('Dr. Maria', 'Gonzalez', 'Doctor')")
+            cursor.execute("INSERT INTO medical_staff (first_name, last_name, role) VALUES ('Nurse Carlos', 'Rodriguez', 'Nurse')")
+            cursor.execute("INSERT INTO medical_staff (first_name, last_name, role) VALUES ('Dr. Ana', 'Martinez', 'Surgeon')")
             
+            cursor.execute("INSERT INTO enhanced_beds (room_code, bed_number, status) VALUES ('ER-101', 'A', 'empty')")
+            cursor.execute("INSERT INTO enhanced_beds (room_code, bed_number, status) VALUES ('ER-102', 'B', 'occupied')")
+            cursor.execute("INSERT INTO enhanced_beds (room_code, bed_number, status) VALUES ('ICU-201', '1', 'empty')")
+            
+            print("✅ Sample data seeded")
+        else:
+            print("✅ Data already exists")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         return True
+        
     except Exception as e:
-        print(f"⚠️ Init warning: {e}")
+        print(f"❌ Database initialization failed: {e}")
         return False
 
 # Track initialization
@@ -109,11 +130,33 @@ def health_check():
         "version": "4.0.0"
     })
 
+# Manual initialization endpoint
+@app.route('/api/admin/init', methods=['POST', 'GET'])
+def manual_init():
+    """Manual endpoint to force database initialization"""
+    global database_initialized
+    try:
+        print("🛠️ Manual database initialization triggered")
+        result = initialize_database()
+        database_initialized = True
+        return jsonify({
+            "success": True,
+            "message": "Database initialization completed",
+            "initialized": result,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 # Simple staff endpoint
 @app.route('/api/staff')
 def get_staff():
     global database_initialized
     if not database_initialized:
+        # Auto-initialize on first API call
         initialize_database()
         database_initialized = True
     
@@ -133,6 +176,7 @@ def get_staff():
 def get_beds():
     global database_initialized
     if not database_initialized:
+        # Auto-initialize on first API call
         initialize_database()
         database_initialized = True
     
@@ -150,11 +194,6 @@ def get_beds():
 # Debug endpoint
 @app.route('/api/debug')
 def debug_info():
-    global database_initialized
-    if not database_initialized:
-        initialize_database()
-        database_initialized = True
-    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -163,8 +202,11 @@ def debug_info():
         cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
         tables = [row['table_name'] for row in cursor.fetchall()]
         
-        cursor.execute("SELECT COUNT(*) as count FROM medical_staff")
-        staff_count = cursor.fetchone()['count']
+        # Try to count staff (will fail if table doesn't exist)
+        staff_count = 0
+        if 'medical_staff' in tables:
+            cursor.execute("SELECT COUNT(*) as count FROM medical_staff")
+            staff_count = cursor.fetchone()['count']
         
         cursor.close()
         conn.close()
@@ -174,8 +216,7 @@ def debug_info():
             "database_connected": True,
             "tables_found": tables,
             "staff_count": staff_count,
-            "has_pg_vars": bool(os.environ.get('PGHOST')),
-            "has_db_url": bool(os.environ.get('DATABASE_URL'))
+            "needs_initialization": staff_count == 0
         })
     except Exception as e:
         return jsonify({
