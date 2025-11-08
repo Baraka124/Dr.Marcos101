@@ -21,12 +21,8 @@ LAST UPDATED: 2025
 
 import os
 import logging
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from urllib.parse import urlparse
-from datetime import datetime, timedelta
-from functools import wraps
-from contextlib import contextmanager
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, current_app, render_template
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -34,11 +30,6 @@ from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 import psycopg
 from psycopg.rows import dict_row
-
-# Connection code  
-conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-
-
 
 # =============================================================================
 # CONFIGURATION CLASS FOR RAILWAY DEPLOYMENT
@@ -78,7 +69,6 @@ class DatabaseManager:
             app: Flask application instance
         """
         self.app = app
-        self._connection = None
     
     def get_connection(self):
         """
@@ -86,7 +76,7 @@ class DatabaseManager:
         Uses Railway's DATABASE_URL environment variable.
         
         Returns:
-            psycopg2.Connection: PostgreSQL connection object
+            psycopg.Connection: PostgreSQL connection object
             
         Raises:
             Exception: If DATABASE_URL is not configured or connection fails
@@ -97,34 +87,22 @@ class DatabaseManager:
             raise Exception("DATABASE_URL environment variable not configured. Please add PostgreSQL database to Railway.")
         
         try:
-            # Parse the database URL for PostgreSQL
-            result = urlparse(database_url)
-            conn = psycopg2.connect(
-                database=result.path[1:],  # Remove leading slash
-                user=result.username,
-                password=result.password,
-                host=result.hostname,
-                port=result.port,
-                sslmode='require',  # Railway requires SSL
-                cursor_factory=RealDictCursor  # Return dictionaries for easier JSON serialization
+            # Use psycopg3 connection
+            conn = psycopg.connect(
+                database_url,
+                row_factory=dict_row  # Return dictionaries for easier JSON serialization
             )
             return conn
         except Exception as e:
             current_app.logger.error(f"PostgreSQL connection failed: {e}")
             raise
     
-    @contextmanager
     def get_cursor(self):
         """
         Context manager for database operations with automatic transaction handling.
         
         Yields:
-            psycopg2.extras.RealDictCursor: Database cursor that returns rows as dictionaries
-            
-        Example:
-            with db_manager.get_cursor() as cursor:
-                cursor.execute("SELECT * FROM medical_staff")
-                staff = cursor.fetchall()
+            psycopg.Cursor: Database cursor that returns rows as dictionaries
         """
         conn = None
         cursor = None
@@ -757,130 +735,6 @@ def get_staff_availability():
 
 
 # =============================================================================
-# ADMINISTRATION AND DEBUG ENDPOINTS
-# =============================================================================
-
-@app.route('/api/admin/initialize-database', methods=['POST'])
-def manual_initialize_database():
-    """
-    Manual endpoint to force database initialization.
-    Useful for development and testing.
-    
-    Returns:
-        JSON response with initialization status
-    """
-    try:
-        current_app.logger.info("🛠️ Manual database initialization triggered via API")
-        
-        # Force run the auto-initialization
-        auto_initialize_database(current_app)
-        
-        return jsonify({
-            "success": True,
-            "message": "Database initialization completed",
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-
-@app.route('/api/debug/database')
-def debug_database():
-    """
-    Debug endpoint to check database status and configuration.
-    
-    Returns:
-        JSON response with database status information
-    """
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            # Check if tables exist
-            cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-            tables = [row['table_name'] for row in cursor.fetchall()]
-            
-            # Check data counts in key tables
-            cursor.execute("SELECT COUNT(*) as count FROM medical_staff")
-            staff_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM enhanced_beds")
-            beds_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM department_units")
-            units_count = cursor.fetchone()['count']
-            
-        return jsonify({
-            "success": True,
-            "database_status": {
-                "tables_exist": len(tables) > 0,
-                "tables_found": tables,
-                "staff_count": staff_count,
-                "beds_count": beds_count,
-                "units_count": units_count,
-                "database_url_configured": bool(os.environ.get('DATABASE_URL')),
-                "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development')
-            }
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "database_status": "error"
-        }), 500
-
-
-@app.route('/api/health/check')
-def health_check_detailed():
-    """
-    Detailed health check including database connectivity and data status.
-    
-    Returns:
-        JSON response with comprehensive health information
-    """
-    try:
-        db_manager = DatabaseManager(current_app)
-        with db_manager.get_cursor() as cursor:
-            # Check key tables
-            cursor.execute("SELECT COUNT(*) as count FROM medical_staff WHERE is_active = true")
-            active_staff = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM enhanced_beds")
-            total_beds = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM department_units WHERE is_active = true")
-            active_units = cursor.fetchone()['count']
-            
-            health_status = {
-                "api": "healthy",
-                "database": "healthy" if active_staff > 0 and total_beds > 0 else "degraded",
-                "data_loaded": active_staff > 0 and total_beds > 0,
-                "stats": {
-                    "active_staff": active_staff,
-                    "total_beds": total_beds,
-                    "active_units": active_units
-                }
-            }
-            
-            return jsonify({
-                "success": True,
-                "status": "healthy" if health_status["data_loaded"] else "degraded",
-                "health": health_status,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "status": "unhealthy", 
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
-# =============================================================================
 # APPLICATION FACTORY AND ROUTE REGISTRATION
 # =============================================================================
 
@@ -907,7 +761,8 @@ def create_app(config_class=RailwayConfig):
     # Talisman for security headers
     Talisman(
         app,
-        content_security_policy=None,        force_https=os.environ.get('RAILWAY_ENVIRONMENT') == 'production',
+        content_security_policy=None,
+        force_https=os.environ.get('RAILWAY_ENVIRONMENT') == 'production',
         strict_transport_security=True
     )
     
@@ -1087,6 +942,127 @@ def create_app(config_class=RailwayConfig):
     def staff_availability():
         """Get staff availability data."""
         return get_staff_availability()
+    
+    # =========================================================================
+    # ADMINISTRATION AND DEBUG ENDPOINTS
+    # =========================================================================
+    
+    @app.route('/api/admin/initialize-database', methods=['POST'])
+    def manual_initialize_database():
+        """
+        Manual endpoint to force database initialization.
+        Useful for development and testing.
+        
+        Returns:
+            JSON response with initialization status
+        """
+        try:
+            app.logger.info("🛠️ Manual database initialization triggered via API")
+            
+            # Force run the auto-initialization
+            auto_initialize_database(app)
+            
+            return jsonify({
+                "success": True,
+                "message": "Database initialization completed",
+                "timestamp": datetime.now().isoformat()
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+    
+    @app.route('/api/debug/database')
+    def debug_database():
+        """
+        Debug endpoint to check database status and configuration.
+        
+        Returns:
+            JSON response with database status information
+        """
+        try:
+            db_manager = DatabaseManager(app)
+            with db_manager.get_cursor() as cursor:
+                # Check if tables exist
+                cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+                tables = [row['table_name'] for row in cursor.fetchall()]
+                
+                # Check data counts in key tables
+                cursor.execute("SELECT COUNT(*) as count FROM medical_staff")
+                staff_count = cursor.fetchone()['count']
+                
+                cursor.execute("SELECT COUNT(*) as count FROM enhanced_beds")
+                beds_count = cursor.fetchone()['count']
+                
+                cursor.execute("SELECT COUNT(*) as count FROM department_units")
+                units_count = cursor.fetchone()['count']
+                
+            return jsonify({
+                "success": True,
+                "database_status": {
+                    "tables_exist": len(tables) > 0,
+                    "tables_found": tables,
+                    "staff_count": staff_count,
+                    "beds_count": beds_count,
+                    "units_count": units_count,
+                    "database_url_configured": bool(os.environ.get('DATABASE_URL')),
+                    "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development')
+                }
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e),
+                "database_status": "error"
+            }), 500
+    
+    @app.route('/api/health/check')
+    def health_check_detailed():
+        """
+        Detailed health check including database connectivity and data status.
+        
+        Returns:
+            JSON response with comprehensive health information
+        """
+        try:
+            db_manager = DatabaseManager(app)
+            with db_manager.get_cursor() as cursor:
+                # Check key tables
+                cursor.execute("SELECT COUNT(*) as count FROM medical_staff WHERE is_active = true")
+                active_staff = cursor.fetchone()['count']
+                
+                cursor.execute("SELECT COUNT(*) as count FROM enhanced_beds")
+                total_beds = cursor.fetchone()['count']
+                
+                cursor.execute("SELECT COUNT(*) as count FROM department_units WHERE is_active = true")
+                active_units = cursor.fetchone()['count']
+                
+                health_status = {
+                    "api": "healthy",
+                    "database": "healthy" if active_staff > 0 and total_beds > 0 else "degraded",
+                    "data_loaded": active_staff > 0 and total_beds > 0,
+                    "stats": {
+                        "active_staff": active_staff,
+                        "total_beds": total_beds,
+                        "active_units": active_units
+                    }
+                }
+                
+                return jsonify({
+                    "success": True,
+                    "status": "healthy" if health_status["data_loaded"] else "degraded",
+                    "health": health_status,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "status": "unhealthy", 
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
     
     # =========================================================================
     # ERROR HANDLERS
